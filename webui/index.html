@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>claude-at</title>
+<!--FONTS-->
+<style><!--APP_CSS--></style>
+<!--BRAND_CSS-->
+</head>
+<body>
+<div class="app">
+
+  <!-- ---------- top bar ---------- -->
+  <header class="topbar">
+    <span class="brand-mark" data-icon="logo" title="<!--BRAND_NAME-->"></span>
+    <div>
+      <div class="wordmark"><span class="claude-spark" data-icon="spark" aria-hidden="true"></span>claude-at</div>
+      <div class="tagline">schedule Claude Code session resumes</div>
+    </div>
+    <span class="spacer"></span>
+    <div class="toggle" id="theme-toggle" role="group" aria-label="Theme">
+      <button type="button" data-theme-val="light" aria-pressed="true">Light</button>
+      <button type="button" data-theme-val="dark" aria-pressed="false">Dark</button>
+    </div>
+  </header>
+
+  <div class="body">
+
+    <!-- ---------- sessions ---------- -->
+    <section class="panel pane" id="panel-sessions">
+      <div class="panel-head">
+        <h2>Sessions <span class="count" id="sess-count"></span></h2>
+        <div class="tools">
+          <button class="btn btn-secondary btn-sm" id="btn-refresh">
+            <span class="spinner" id="sess-spin" style="display:none"></span>Refresh
+          </button>
+        </div>
+      </div>
+      <div class="filters">
+        <input type="text" class="search" id="sess-search"
+               placeholder="Search title, directory, or id…">
+        <div class="field"><label>Dir</label>
+          <select id="sess-dir"><option value="">All</option></select></div>
+        <div class="field"><label>Days</label>
+          <input type="text" class="days" id="sess-days" value="14" title="0 = all">
+        </div>
+      </div>
+      <div class="panel-body" style="padding-top:0">
+        <div class="sess-list" id="sess-list"></div>
+      </div>
+    </section>
+
+    <!-- ---------- schedule ---------- -->
+    <section class="panel pane" id="panel-schedule">
+      <div class="panel-head">
+        <h2>Schedule a run</h2>
+        <div class="tools">
+          <button class="btn btn-ghost btn-sm" id="btn-clear">Clear pick</button>
+        </div>
+      </div>
+      <div class="panel-body sched">
+        <div class="target-summary">
+          <span class="lead">Target</span>
+          <span id="target-desc">Continue latest chat</span>
+        </div>
+
+        <div class="row top">
+          <div class="field-col">
+            <label for="f-time">Time</label>
+            <input type="time" id="f-time">
+            <button class="btn btn-secondary btn-sm" id="btn-shot" type="button"
+              title="Append the path of your most recent screenshot (newest image in your Screenshots folder) to the prompt.">
+              Latest screenshot
+            </button>
+            <button class="btn btn-secondary btn-sm" id="btn-attach" type="button"
+              title="Browse for any file; its full path is appended to the prompt as a new line.">
+              Add file path…
+            </button>
+          </div>
+          <div class="field-col grow">
+            <label for="f-prompt">Kick-off prompt <span style="font-weight:400">(optional)</span></label>
+            <textarea id="f-prompt" rows="3"
+              placeholder="Submitted automatically when the session opens…"></textarea>
+          </div>
+        </div>
+
+        <div class="win-slots" id="win-slots" hidden>
+          <span class="claude-spark win-spark" data-icon="spark" aria-hidden="true"></span>
+          <span class="win-lead">5-hour window</span>
+          <span class="win-chips" id="win-chips"></span>
+          <button class="btn btn-ghost btn-sm win-refresh" id="btn-win-refresh" type="button"
+            title="Re-check your current Claude 5-hour usage window">↻</button>
+          <span class="win-note" id="win-note"></span>
+        </div>
+
+        <button class="adv-toggle" id="adv-toggle" aria-expanded="false">
+          <span class="ico" data-icon="chevron"></span> Advanced options
+        </button>
+
+        <div class="adv" id="adv">
+          <div class="field-col">
+            <label>Target</label>
+            <div class="radio-group">
+              <label class="radio"><input type="radio" name="target" value="resume"> Resume session</label>
+              <label class="radio"><input type="radio" name="target" value="continue" checked> Continue latest in dir</label>
+              <label class="radio"><input type="radio" name="target" value="new"> New session</label>
+            </div>
+            <input type="text" id="f-session" placeholder="session UUID (double-click one above)" style="margin-top:6px">
+          </div>
+
+          <div class="field-col">
+            <label for="f-dir">Directory</label>
+            <div class="row">
+              <input type="text" id="f-dir" style="flex:1;min-width:220px">
+              <button class="btn btn-secondary btn-sm" id="btn-browse">Browse…</button>
+            </div>
+          </div>
+
+          <div class="field-col">
+            <label>When</label>
+            <div class="row">
+              <label class="radio"><input type="radio" name="when" value="once" checked> Once</label>
+              <input type="date" id="f-date">
+              <label class="radio"><input type="radio" name="when" value="daily"> Daily</label>
+              <label class="radio"><input type="radio" name="when" value="weekly"> Weekly</label>
+              <span class="days-row" id="days-row"></span>
+              <button class="btn btn-ghost btn-sm" id="btn-mf">M–F</button>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="field-col"><label for="f-model">Model</label>
+              <select id="f-model"></select></div>
+            <div class="field-col"><label for="f-mode">Permissions</label>
+              <select id="f-mode"></select></div>
+            <div class="field-col"><label for="f-term">Terminal</label>
+              <select id="f-term"></select></div>
+            <div class="field-col grow"><label for="f-name">Name</label>
+              <input type="text" id="f-name"></div>
+          </div>
+
+          <div class="row">
+            <label class="radio"><input type="checkbox" id="f-net" checked> Require network</label>
+            <label class="radio"><input type="checkbox" id="f-keep"> Keep one-shot task after run</label>
+            <div class="field-col grow"><label for="f-extra">Extra claude args</label>
+              <input type="text" id="f-extra" placeholder='e.g. --fork-session --add-dir "C:\x y"'></div>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button class="btn btn-primary" id="btn-schedule">Schedule</button>
+          <button class="btn btn-secondary" id="btn-preview">Preview command + XML</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------- pending ---------- -->
+    <section class="panel pane" id="panel-pending">
+      <div class="panel-head">
+        <h2>Pending runs <span class="count" id="pend-count"></span></h2>
+        <div class="tools">
+          <button class="btn btn-secondary btn-sm" id="btn-pend-refresh">Refresh</button>
+          <button class="btn btn-ghost btn-sm" id="btn-prune">Prune done</button>
+        </div>
+      </div>
+      <div class="panel-body"><div id="pend-list"></div></div>
+    </section>
+
+  </div>
+
+  <div class="statusbar">
+    <span class="spinner" id="status-spin" style="display:none"></span>
+    <span id="status">ready</span>
+  </div>
+</div>
+
+<!-- boot veil + session-scan overlay (shown from the first frame so the
+     un-populated shell is never visible; lifts once the scan completes) -->
+<div class="overlay show" id="overlay">
+  <div class="card">
+    <span class="claude-spark card-spark" data-icon="spark" aria-hidden="true"></span>
+    <span class="brand-mark splash-mark" data-icon="logo" aria-hidden="true"></span>
+    <div class="big-spinner"></div>
+    <div class="msg">Reading your Claude sessions…</div>
+    <div class="sub">Scanning <code>~/.claude/projects</code>…</div>
+  </div>
+</div>
+
+<!-- preview modal -->
+<div class="modal" id="modal">
+  <div class="sheet">
+    <div class="sheet-head">
+      <h3>Preview — nothing registered</h3>
+      <span style="flex:1"></span>
+      <button class="btn btn-ghost btn-sm" data-close-modal aria-label="Close">
+        <span class="ico ico-sm" data-icon="close"></span>
+      </button>
+    </div>
+    <pre id="preview-pre"></pre>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script><!--ICONS_JS--></script>
+<script><!--APP_JS--></script>
+</body>
+</html>

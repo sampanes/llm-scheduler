@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.pyc
+
+# Runtime state / local config (not source)
+/jobs.json
+/settings.json
+
+# Pre-refactor backups
+*.bak.py
+
+# Web GUI build artifact (self-contained HTML composed at launch)
+/webui/_app.html
+
+# Local working notes (not source)
+/CLAUDE.local.md

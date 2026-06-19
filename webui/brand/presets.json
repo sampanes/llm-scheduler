@@ -1,0 +1,8 @@
+{
+  "coral": { "accent": "#c15f3c", "accentHover": "#a9502f", "accentActive": "#8f4327" },
+  "ocean": { "accent": "#2563eb", "accentHover": "#1d4ed8", "accentActive": "#1e40af" },
+  "forest": { "accent": "#2f8f5b", "accentHover": "#277a4d", "accentActive": "#1f6740" },
+  "violet": { "accent": "#7c3aed", "accentHover": "#6d28d9", "accentActive": "#5b21b6" },
+  "amber": { "accent": "#d97706", "accentHover": "#b45309", "accentActive": "#92400e" },
+  "slate": { "accent": "#475569", "accentHover": "#3b4757", "accentActive": "#2f3a47" }
+}

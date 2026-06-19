@@ -1,0 +1,19 @@
+{
+  "name": "claude-at",
+  "accent": "#c15f3c",
+  "accentHover": "#a9502f",
+  "accentActive": "#8f4327",
+  "logo": null,
+  "appId": "ClaudeAt",
+  "font": {
+    "family": "Lato",
+    "stack": "'Lato', 'Helvetica Neue', 'Segoe UI', Arial, sans-serif",
+    "files": [
+      { "file": "fonts/lato/Lato-300.ttf",  "weight": 300, "style": "normal" },
+      { "file": "fonts/lato/Lato-400.ttf",  "weight": 400, "style": "normal" },
+      { "file": "fonts/lato/Lato-700.ttf",  "weight": 700, "style": "normal" },
+      { "file": "fonts/lato/Lato-900.ttf",  "weight": 900, "style": "normal" },
+      { "file": "fonts/lato/Lato-900i.ttf", "weight": 900, "style": "italic" }
+    ]
+  }
+}
