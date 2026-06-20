@@ -67,10 +67,11 @@ def next_fire(job, now=None):
 
 def make_job(name, dirpath, target_mode, session_id, schedule, model,
              permission_mode, terminal, prompt, extra_args,
-             require_network, delete_after_run):
+             require_network, delete_after_run, tool="claude"):
     return {
         "id": uuid.uuid4().hex[:8],
         "name": sanitize_name(name),
+        "tool": tool or "claude",
         "dir": str(Path(dirpath)),
         "target": {"mode": target_mode, "session_id": session_id or ""},
         "schedule": schedule,

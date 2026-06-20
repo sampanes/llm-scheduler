@@ -9,7 +9,7 @@ import json
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from .config import PROJECTS_DIR, UUID_RE
+from .config import CODEX_SESSIONS_DIR, PROJECTS_DIR, UUID_RE
 
 
 def _extract_session_meta(path, max_bytes=262144, max_lines=300):
@@ -57,17 +57,85 @@ def _extract_session_meta(path, max_bytes=262144, max_lines=300):
     return cwd, title
 
 
+def _content_text(content):
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, dict) and block.get("type") in ("text", "input_text"):
+                text = block.get("text")
+                if text:
+                    parts.append(text)
+        return "\n".join(parts) if parts else None
+    return None
+
+
+def _is_synthetic_codex_title(text):
+    text = (text or "").lstrip()
+    return text.startswith((
+        "# AGENTS.md instructions",
+        "<environment_context",
+        "<permissions instructions",
+        "<collaboration_mode",
+        "<apps_instructions",
+        "<skills_instructions",
+        "The following is the Codex agent history whose request action you are assessing",
+        "The following is the Codex agent history added since your last approval assessment",
+    ))
+
+
+def _extract_codex_session_meta(path, max_bytes=262144, max_lines=300):
+    """Best-effort id + cwd + human title from a Codex rollout JSONL."""
+    sid, cwd, title = None, None, None
+    bytes_read = 0
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            for i, line in enumerate(f):
+                bytes_read += len(line)
+                if i >= max_lines or bytes_read > max_bytes:
+                    break
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except ValueError:
+                    continue
+                typ = rec.get("type")
+                payload = rec.get("payload") or {}
+                if typ == "session_meta":
+                    sid = sid or payload.get("id")
+                    cwd = cwd or payload.get("cwd")
+                elif typ == "event_msg" and title is None:
+                    if payload.get("type") == "user_message":
+                        candidate = payload.get("message")
+                        if not _is_synthetic_codex_title(candidate):
+                            title = candidate
+                elif typ == "response_item" and title is None:
+                    if payload.get("type") == "message" and payload.get("role") == "user":
+                        candidate = _content_text(payload.get("content"))
+                        if not _is_synthetic_codex_title(candidate):
+                            title = candidate
+                if sid and cwd and title:
+                    break
+    except OSError:
+        pass
+    if title:
+        title = " ".join(title.split())
+    return sid, cwd, title
+
+
 _CUSTOM_TITLE_TAIL = 262144  # only the file's tail can hold the newest rename
 
 
 def _find_custom_title(path, tail_bytes=_CUSTOM_TITLE_TAIL):
-    """Last user-assigned title in the jsonl (renames append custom-title
-    records), or None. Searches backwards so the newest rename wins.
+    """Last title record in the jsonl, or None.
 
-    Renames are *appended*, so the most recent custom-title always lives near
-    EOF — we read only the file's tail rather than the whole (often multi-MB)
-    jsonl. That keeps the session scan from reading every byte of every session
-    on a cold disk, which is the dominant boot-time I/O cost."""
+    Claude has used both custom-title/customTitle and ai-title/aiTitle records.
+    Renames are appended, so scanning the tail backwards gives the newest
+    visible title without reading every byte of large session logs.
+    """
     try:
         with open(path, "rb") as f:
             f.seek(0, 2)
@@ -79,22 +147,19 @@ def _find_custom_title(path, tail_bytes=_CUSTOM_TITLE_TAIL):
     if start:  # we seeked into the middle of a line — drop the partial head
         nl = data.find(b"\n")
         data = data[nl + 1:] if nl >= 0 else b""
-    pos = len(data)
-    while True:
-        idx = data.rfind(b'"type":"custom-title"', 0, pos)
-        if idx < 0:
-            return None
-        s = data.rfind(b"\n", 0, idx) + 1
-        e = data.find(b"\n", idx)
-        if e < 0:
-            e = len(data)
+    for raw in reversed(data.splitlines()):
+        if b"custom-title" not in raw and b"ai-title" not in raw:
+            continue
         try:
-            rec = json.loads(data[s:e].decode("utf-8", "replace"))
-            if rec.get("type") == "custom-title" and rec.get("customTitle"):
-                return rec["customTitle"]
+            rec = json.loads(raw.decode("utf-8", "replace"))
         except ValueError:
-            pass
-        pos = idx
+            continue
+        typ = rec.get("type")
+        if typ == "custom-title" and rec.get("customTitle"):
+            return rec["customTitle"]
+        if typ == "ai-title" and rec.get("aiTitle"):
+            return rec["aiTitle"]
+    return None
 
 
 def open_session_ids():
@@ -110,7 +175,7 @@ def open_session_ids():
     return ids
 
 
-def scan_sessions(days=0, dir_filter=None, search=None):
+def _scan_claude_sessions(days=0, dir_filter=None, search=None):
     """Return session dicts sorted newest-first."""
     sessions = []
     if not PROJECTS_DIR.exists():
@@ -161,3 +226,54 @@ def scan_sessions(days=0, dir_filter=None, search=None):
             seen.add(s["id"])
             deduped.append(s)
     return deduped
+
+
+def _scan_codex_sessions(days=0, dir_filter=None, search=None):
+    sessions = []
+    if not CODEX_SESSIONS_DIR.exists():
+        return sessions
+    cutoff = None
+    if days and days > 0:
+        cutoff = datetime.now() - timedelta(days=days)
+    for f in CODEX_SESSIONS_DIR.rglob("*.jsonl"):
+        try:
+            st = f.stat()
+        except OSError:
+            continue
+        mtime = datetime.fromtimestamp(st.st_mtime)
+        if cutoff and mtime < cutoff:
+            continue
+        sid, cwd, title = _extract_codex_session_meta(f)
+        if not sid or not UUID_RE.match(sid):
+            continue
+        cwd = cwd or str(f.parent)
+        if dir_filter and cwd.lower() != dir_filter.lower():
+            continue
+        entry = {
+            "id": sid,
+            "dir": cwd,
+            "title": (title or "")[:120],
+            "custom": False,
+            "mtime": mtime,
+            "size": st.st_size,
+            "active": False,
+        }
+        if search:
+            hay = f"{sid} {cwd} {entry['title']}".lower()
+            if search.lower() not in hay:
+                continue
+        sessions.append(entry)
+    sessions.sort(key=lambda s: s["mtime"], reverse=True)
+    seen, deduped = set(), []
+    for s in sessions:
+        if s["id"] not in seen:
+            seen.add(s["id"])
+            deduped.append(s)
+    return deduped
+
+
+def scan_sessions(days=0, dir_filter=None, search=None, tool="claude"):
+    """Return session dicts sorted newest-first."""
+    if tool == "codex":
+        return _scan_codex_sessions(days=days, dir_filter=dir_filter, search=search)
+    return _scan_claude_sessions(days=days, dir_filter=dir_filter, search=search)

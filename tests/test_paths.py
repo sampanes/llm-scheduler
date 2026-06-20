@@ -17,7 +17,7 @@ from pathlib import Path
 
 from unittest import mock
 
-from catcore.paths import resolve_claude, resolve_terminal, default_terminal
+from catcore.paths import resolve_claude, resolve_codex, resolve_terminal, default_terminal
 
 
 class ResolveClaude(unittest.TestCase):
@@ -37,6 +37,19 @@ class ResolveClaude(unittest.TestCase):
         # No settings path -> falls through to which()/known locations (any result
         # is fine; it just must not raise).
         resolve_claude({})
+
+
+class ResolveCodex(unittest.TestCase):
+    def setUp(self):
+        self.dir = Path(tempfile.mkdtemp())
+        self.exe = self.dir / "codex.exe"
+        self.exe.write_text("", encoding="utf-8")
+
+    def test_real_file_path_is_returned(self):
+        self.assertEqual(resolve_codex({"codex_path": str(self.exe)}), str(self.exe))
+
+    def test_directory_path_is_rejected(self):
+        self.assertNotEqual(resolve_codex({"codex_path": str(self.dir)}), str(self.dir))
 
 
 class ResolveTerminal(unittest.TestCase):

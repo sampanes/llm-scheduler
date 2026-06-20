@@ -1,4 +1,4 @@
-"""Legacy tkinter GUI for claude-at.
+"""Legacy tkinter GUI for llm-scheduler.
 
 Preserved verbatim from the original monolith during the Phase 1 refactor so
 the tool keeps a working GUI while the pywebview web GUI is built.
@@ -13,7 +13,8 @@ from catcore import (
     scan_sessions, load_jobs, find_job, make_job, build_task_xml, build_action,
     register_job, delete_job, task_run, prune_jobs, task_query_all, next_fire,
     describe_target, describe_schedule, sanitize_name, task_name_for,
-    UUID_RE, PERMISSION_MODES, MODELS, TERMINALS, DAY_ORDER, default_terminal,
+    UUID_RE, PERMISSION_MODES, CODEX_APPROVAL_MODES, MODELS, CODEX_MODELS,
+    TERMINALS, DAY_ORDER, default_terminal,
 )
 
 
@@ -22,7 +23,7 @@ def run_gui(settings, smoke=False):
     from tkinter import ttk, messagebox, filedialog
 
     root = tk.Tk()
-    root.title("claude-at — schedule Claude session resumes")
+    root.title("llm-scheduler - schedule Claude/Codex session resumes")
     root.geometry("1080x800")
     if smoke:
         root.withdraw()
@@ -36,7 +37,7 @@ def run_gui(settings, smoke=False):
     def with_loading_curtain(work, message="Loading…"):
         """Paint a full-window 'loading' overlay, run blocking `work`, remove it.
 
-        scan_sessions() reads every ~/.claude/projects/*.jsonl and takes ~20s,
+        scan_sessions() reads many session jsonl files and can take ~20s,
         during which the single-threaded UI is frozen. The curtain is painted
         (root.update) BEFORE the blocking call, so the user sees a clear
         loading message + a reminder that the window is intentionally
@@ -50,7 +51,7 @@ def run_gui(settings, smoke=False):
                  foreground="white", background="#1a5276").pack(pady=(0, 16))
         tk.Label(box, justify="center", font=("Segoe UI", 11),
                  foreground="white", background="#1a5276", text=(
-                     "Reading your Claude sessions — this takes about 20 seconds.\n\n"
+                     "Reading your sessions - this can take about 20 seconds.\n\n"
                      "The window is FROZEN until it finishes.\n"
                      "Don't drag, resize, or click it — Windows may flash\n"
                      "\"Not Responding,\" but it's working and will catch up\n"
@@ -80,6 +81,16 @@ def run_gui(settings, smoke=False):
     ttk.Spinbox(filter_row, textvariable=days_var, from_=0, to=365, width=5
                 ).pack(side="left", padx=4)
     ttk.Label(filter_row, text="(0 = all)").pack(side="left")
+
+    tool_var = tk.StringVar(value=settings.get("tool", "claude"))
+    if tool_var.get() not in ("claude", "codex"):
+        tool_var.set("claude")
+
+    def current_tool():
+        return tool_var.get() if tool_var.get() in ("claude", "codex") else "claude"
+
+    def current_tool_label():
+        return "Codex CLI" if current_tool() == "codex" else "Claude Code"
 
     cols = ("when", "dir", "title", "id")
     sess_tree = ttk.Treeview(sess_frame, columns=cols, show="headings", height=9)
@@ -119,7 +130,7 @@ def run_gui(settings, smoke=False):
         except ValueError:
             days = 0
         nonlocal sessions_cache
-        sessions_cache = scan_sessions(days=days)
+        sessions_cache = scan_sessions(days=days, tool=current_tool())
         dirs = sorted({s["dir"] for s in sessions_cache}, key=str.lower)
         dir_combo["values"] = ["(all)"] + dirs
         apply_filter()
@@ -145,13 +156,14 @@ def run_gui(settings, smoke=False):
 
     def update_target_desc(*_):
         d = dir_var.get()
+        label = current_tool_label()
         if target_var.get() == "resume" and session_var.get():
-            t = session_title["text"] or session_var.get()[:8] + "…"
-            target_desc.set(f'Resume "{t[:60]}"  in  {d}')
+            t = session_title["text"] or session_var.get()[:8] + "..."
+            target_desc.set(f'{label}: resume "{t[:60]}" in {d}')
         elif target_var.get() == "new":
-            target_desc.set(f"New session in  {d}")
+            target_desc.set(f"{label}: new session in {d}")
         else:
-            target_desc.set(f"Continue latest chat in  {d}")
+            target_desc.set(f"{label}: continue latest session in {d}")
 
     # --- simple rows ---
     srow = ttk.Frame(form); srow.pack(fill="x", padx=10, pady=PADY)
@@ -168,6 +180,11 @@ def run_gui(settings, smoke=False):
     ttk.Button(srow, text="Clear pick", command=clear_pick).pack(side="right")
 
     trow2 = ttk.Frame(form); trow2.pack(fill="x", padx=10, pady=PADY)
+    ttk.Label(trow2, text="Tool:").pack(side="left")
+    tool_combo = ttk.Combobox(trow2, textvariable=tool_var,
+                              values=("claude", "codex"), width=10,
+                              state="readonly")
+    tool_combo.pack(side="left", padx=(6, 14))
     ttk.Label(trow2, text="Time:").pack(side="left")
     default_dt = (datetime.now() + timedelta(hours=1)).replace(
         minute=0, second=0, microsecond=0)
@@ -254,12 +271,16 @@ def run_gui(settings, smoke=False):
     arow4 = ttk.Frame(adv); arow4.pack(fill="x", padx=10, pady=PADY)
     ttk.Label(arow4, text="Model:").pack(side="left")
     model_var = tk.StringVar(value=settings["model"])
-    ttk.Combobox(arow4, textvariable=model_var, values=MODELS, width=10
-                 ).pack(side="left", padx=6)
-    ttk.Label(arow4, text="Permissions:").pack(side="left", padx=(14, 0))
+    model_combo = ttk.Combobox(arow4, textvariable=model_var, values=MODELS,
+                               width=18)
+    model_combo.pack(side="left", padx=6)
+    mode_label = ttk.Label(arow4, text="Permissions:")
+    mode_label.pack(side="left", padx=(14, 0))
     mode_var = tk.StringVar(value=settings["permission_mode"])
-    ttk.Combobox(arow4, textvariable=mode_var, values=PERMISSION_MODES,
-                 width=16, state="readonly").pack(side="left", padx=6)
+    mode_combo = ttk.Combobox(arow4, textvariable=mode_var,
+                              values=PERMISSION_MODES, width=16,
+                              state="readonly")
+    mode_combo.pack(side="left", padx=6)
     ttk.Label(arow4, text="Terminal:").pack(side="left", padx=(14, 0))
     term_var = tk.StringVar(value=settings["terminal"] or default_terminal(settings))
     ttk.Combobox(arow4, textvariable=term_var, values=TERMINALS, width=9,
@@ -274,9 +295,40 @@ def run_gui(settings, smoke=False):
     keep_var = tk.BooleanVar(value=not settings["delete_after_run"])
     ttk.Checkbutton(arow5, text="Keep one-shot task after run", variable=keep_var
                     ).pack(side="left", padx=(16, 0))
-    ttk.Label(arow5, text="Extra claude args:").pack(side="left", padx=(20, 0))
+    extra_label = ttk.Label(arow5, text="Extra args:")
+    extra_label.pack(side="left", padx=(20, 0))
     extra_var = tk.StringVar()
     ttk.Entry(arow5, textvariable=extra_var, width=40).pack(side="left", padx=6)
+
+    def apply_tool_config(reset_values=False):
+        if current_tool() == "codex":
+            model_combo["values"] = CODEX_MODELS
+            mode_combo["values"] = CODEX_APPROVAL_MODES
+            mode_label.config(text="Approval:")
+            if reset_values or model_var.get() not in CODEX_MODELS:
+                model_var.set(settings.get("codex_model", "default"))
+            if reset_values or mode_var.get() not in CODEX_APPROVAL_MODES:
+                mode_var.set(settings.get("codex_approval_mode", "default"))
+        else:
+            model_combo["values"] = MODELS
+            mode_combo["values"] = PERMISSION_MODES
+            mode_label.config(text="Permissions:")
+            if reset_values or model_var.get() not in MODELS:
+                model_var.set(settings.get("model", "opus"))
+            if reset_values or mode_var.get() not in PERMISSION_MODES:
+                mode_var.set(settings.get("permission_mode", "auto"))
+        update_target_desc()
+
+    def on_tool_change(*_):
+        clear_pick()
+        dir_filter_var.set("(all)")
+        apply_tool_config(reset_values=True)
+        with_loading_curtain(
+            refresh_sessions,
+            message=f"Loading {current_tool_label()} sessions...",
+        )
+
+    tool_combo.bind("<<ComboboxSelected>>", on_tool_change)
 
     def open_args_builder():
         top = tk.Toplevel(root)
@@ -361,7 +413,7 @@ def run_gui(settings, smoke=False):
                         mode_var.get(), term_var.get(),
                         prompt_text.get("1.0", "end").strip(),
                         extra_var.get().strip(), net_var.get(),
-                        not keep_var.get())
+                        not keep_var.get(), tool=current_tool())
 
     def do_schedule():
         try:
@@ -405,19 +457,21 @@ def run_gui(settings, smoke=False):
     adv_btn.pack(side="left", padx=10)
     ttk.Button(brow, text="Preview command + XML", command=do_preview
                ).pack(side="left", padx=4)
-    update_target_desc()
+    apply_tool_config(reset_values=False)
 
     # ---------------- pending runs pane ----------------
     pend_frame = ttk.LabelFrame(root, text="Pending runs (soonest first)")
     pend_frame.pack(fill="both", expand=True, padx=8, pady=(4, 4))
 
-    pcols = ("del", "next", "name", "schedule", "target", "model", "mode", "term", "tstat")
+    pcols = ("del", "next", "name", "tool", "schedule", "target", "model",
+             "mode", "term", "tstat")
     pend_tree = ttk.Treeview(pend_frame, columns=pcols, show="headings", height=7)
-    pwidths = {"del": 28, "next": 130, "name": 170, "schedule": 150, "target": 270,
-               "model": 70, "mode": 110, "term": 70, "tstat": 90}
+    pwidths = {"del": 28, "next": 130, "name": 170, "tool": 70,
+               "schedule": 150, "target": 270, "model": 110, "mode": 110,
+               "term": 70, "tstat": 90}
     pheads = {"del": "", "next": "Next run", "name": "Job", "schedule": "Schedule",
-              "target": "Target", "model": "Model", "mode": "Permissions",
-              "term": "Terminal", "tstat": "Task status"}
+              "tool": "Tool", "target": "Target", "model": "Model",
+              "mode": "Mode", "term": "Terminal", "tstat": "Task status"}
     for c in pcols:
         pend_tree.heading(c, text=pheads[c])
         pend_tree.column(c, width=pwidths[c], anchor="w",
@@ -438,7 +492,8 @@ def run_gui(settings, smoke=False):
             tstat = q["status"] if q else "MISSING"
             pend_tree.insert("", "end", iid=j["id"], values=(
                 "✕", f"{nf:%Y-%m-%d %H:%M}" if nf else "expired",
-                f"{j['name']}-{j['id']}", describe_schedule(j),
+                f"{j['name']}-{j['id']}", j.get("tool", "claude"),
+                describe_schedule(j),
                 describe_target(j), j["model"], j["permission_mode"],
                 j["terminal"], tstat))
         set_status(f"{len(pend_tree.get_children())} pending jobs")
@@ -490,6 +545,8 @@ def run_gui(settings, smoke=False):
         j = selected_job()
         if not j:
             return
+        tool_var.set(j.get("tool", "claude"))
+        apply_tool_config(reset_values=False)
         target_var.set(j["target"]["mode"])
         session_var.set(j["target"].get("session_id", ""))
         dir_var.set(j["dir"])

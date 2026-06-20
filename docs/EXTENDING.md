@@ -1,5 +1,11 @@
 # Extending & renaming this scheduler
 
+Current status: Claude and Codex are built in. Codex support is implemented as
+a pragmatic first slice rather than the full data-driven profile system below:
+scheduled actions call the native vendored `codex.exe`, Codex sessions are read
+from `~/.codex/sessions`, and Codex window chips come from `codex app-server
+--stdio` via `account/rateLimits/read`.
+
 This tool schedules **interactive Claude Code sessions** as Windows scheduled
 tasks. Two enhancements come up often enough to be worth documenting up front:
 

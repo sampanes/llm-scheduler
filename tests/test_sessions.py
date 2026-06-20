@@ -1,9 +1,7 @@
 """Unit tests for catcore.sessions title recovery.
 
 Focus: _find_custom_title reads only the file *tail* (a boot-time I/O win), and
-must still recover the newest rename and degrade cleanly. Uses compact JSON with
-separators=(',',':') because that's the on-disk shape Claude writes and the byte
-pattern the scanner searches for ('"type":"custom-title"', no spaces).
+must still recover the newest rename/title and degrade cleanly.
 """
 
 import json
@@ -11,7 +9,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from catcore.sessions import _find_custom_title
+from catcore.sessions import _extract_codex_session_meta, _find_custom_title
 
 
 def cj(obj):
@@ -41,6 +39,20 @@ class FindCustomTitle(unittest.TestCase):
         ])
         self.assertEqual(_find_custom_title(p), "NEWEST")
 
+    def test_ai_title_record_is_used(self):
+        p = write_jsonl([
+            cj({"type": "user", "message": {"content": "first prompt"}}),
+            cj({"type": "ai-title", "aiTitle": "Renamed by Claude"}),
+        ])
+        self.assertEqual(_find_custom_title(p), "Renamed by Claude")
+
+    def test_newest_title_record_wins_across_formats(self):
+        p = write_jsonl([
+            cj({"type": "custom-title", "customTitle": "Manual name"}),
+            cj({"type": "ai-title", "aiTitle": "Latest name"}),
+        ])
+        self.assertEqual(_find_custom_title(p), "Latest name")
+
     def test_tail_only_read_still_finds_recent_rename(self):
         # A large file whose newest rename sits well past the first 1 KB: the
         # default 256 KB tail must still catch it (this is the whole point of
@@ -63,6 +75,47 @@ class FindCustomTitle(unittest.TestCase):
         lines += [cj({"type": "user", "message": {"content": "x" * 100}}) for _ in range(50)]
         p = write_jsonl(lines)
         self.assertIsNone(_find_custom_title(p, tail_bytes=64))
+
+
+class ExtractCodexSessionMeta(unittest.TestCase):
+    def test_reads_session_meta_and_first_user_message(self):
+        sid = "11111111-2222-4333-8444-555555555555"
+        p = write_jsonl([
+            cj({"type": "session_meta", "payload": {
+                "id": sid,
+                "cwd": r"C:\repo",
+            }}),
+            cj({"type": "event_msg", "payload": {
+                "type": "user_message",
+                "message": "Build Codex support",
+            }}),
+        ])
+        self.assertEqual(
+            _extract_codex_session_meta(p),
+            (sid, r"C:\repo", "Build Codex support"),
+        )
+
+    def test_skips_synthetic_context_title(self):
+        sid = "11111111-2222-4333-8444-555555555555"
+        p = write_jsonl([
+            cj({"type": "session_meta", "payload": {
+                "id": sid,
+                "cwd": r"C:\repo",
+            }}),
+            cj({"type": "response_item", "payload": {
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "input_text", "text": "# AGENTS.md instructions\n<context>"}],
+            }}),
+            cj({"type": "event_msg", "payload": {
+                "type": "user_message",
+                "message": "Real user request",
+            }}),
+        ])
+        self.assertEqual(
+            _extract_codex_session_meta(p),
+            (sid, r"C:\repo", "Real user request"),
+        )
 
 
 if __name__ == "__main__":

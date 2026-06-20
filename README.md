@@ -1,5 +1,9 @@
 # claude-at
 
+Current status: Claude Code and Codex CLI are both schedulable. Claude uses the
+Anthropic usage API for 5-hour window chips; Codex uses `codex app-server
+--stdio` and `account/rateLimits/read` for the same window picker.
+
 Schedule Claude Code session resumes on Windows: "open claude at *time*, in
 *directory*, resuming *that chat*, model *fable*, permission mode *auto*" —
 with a GUI for picking the chat and seeing pending runs.
@@ -51,6 +55,7 @@ claude-at.cmd add --dir "C:\Projects\acme-api" ^
     --resume 11111111-1111-4111-8111-111111111111 ^
     --at "2026-06-13 07:00" --model opus --mode auto --prompt "continue where we left off"
 claude-at.cmd add --dir C:\some\repo --continue --daily --time 06:45
+claude-at.cmd add --tool codex --dir C:\some\repo --continue --daily --time 06:45
 claude-at.cmd list
 claude-at.cmd add ... --dry-run     # print task XML, register nothing
 ```
@@ -118,8 +123,9 @@ script scanning:
 * Tasks are registered **only via native `schtasks.exe /Create /XML`**
   (under the `\ClaudeAt\` task folder). No PowerShell at schedule time.
 * The scheduled action is **signed binaries only, no script hosts**:
-  `wezterm-gui.exe start --cwd <dir> -- claude.exe <args>` (or `claude.exe`
-  directly for terminal=console). No PowerShell / cmd / Python in the
+  `wezterm-gui.exe start --cwd <dir> -- <tool.exe> <args>` (or the tool exe
+  directly for terminal=console). Codex resolves to the vendored native
+  `codex.exe`, not the npm `codex.cmd` shim. No PowerShell / cmd / Python in the
   fire-time chain — nothing for AMSI to scan, minimal behavioral surface.
 * Python (this tool) only runs when *you* open the GUI/CLI.
 
@@ -148,10 +154,10 @@ Notes:
 | `claude_at.py` | thin CLI / entrypoint — argument parsing + dispatch into `catcore` |
 | `catcore/` | GUI-free backend package (imports no UI toolkit): |
 | &nbsp;&nbsp;`config.py` | constants, `DEFAULT_SETTINGS`, settings/jobs persistence |
-| &nbsp;&nbsp;`paths.py` | resolve `claude.exe` / terminal executables |
-| &nbsp;&nbsp;`sessions.py` | session discovery from `~/.claude/projects` |
+| &nbsp;&nbsp;`paths.py` | resolve Claude, native Codex, and terminal executables |
+| &nbsp;&nbsp;`sessions.py` | session discovery from `~/.claude/projects` and `~/.codex/sessions` |
 | &nbsp;&nbsp;`jobmodel.py` | pure job-dict helpers (identity, descriptions, `next_fire`, `make_job`) |
-| &nbsp;&nbsp;`taskxml.py` | build the claude command + Task Scheduler XML (pure) |
+| &nbsp;&nbsp;`taskxml.py` | build Claude/Codex commands + Task Scheduler XML (pure) |
 | &nbsp;&nbsp;`scheduler.py` | `schtasks.exe` wrappers + job register/delete/prune (side effects) |
 | `webgui.py` | default GUI — pywebview `Api` bridge + self-contained HTML composer |
 | `webui/` | front-end: `index.html`, `app.css`, `app.js`, and `brand/` (the active **brand pack** — `brand.json` + logo/fonts/icons; see Theming) |
@@ -179,8 +185,8 @@ the **security invariant** that the fire-time action is a signed binary only
 ## Requirements
 
 * Python 3.10+ (3.14 installed).
-* `pip install pywebview` for the web GUI (pulls `pythonnet`; uses the
+* `pip install -r requirements.txt` for the web GUI (pulls `pythonnet`; uses the
   **WebView2 runtime**, which ships with Windows 11). Falls back to the
   built-in tkinter GUI (`gui --tk`) if pywebview is missing.
-* `claude` on PATH (`~\.local\bin\claude.exe`).
+* `claude` and/or `codex` on PATH, depending on which tool you schedule.
 * WezTerm and/or Windows Terminal for those terminal options.

@@ -26,10 +26,16 @@ datetime.now()). resets_at arrives as UTC and is converted on the way out.
 """
 
 import json
+import queue
+import subprocess
+import threading
+import time
 import urllib.error
 import urllib.request
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+from .paths import resolve_codex
 
 USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
 CREDS = Path.home() / ".claude" / ".credentials.json"
@@ -156,8 +162,8 @@ def _next_cutoff(now, hhmm):
     return c if c > now else c + timedelta(days=1)
 
 
-def window_slots(creds_path=CREDS, now=None, step_hours=WINDOW_HOURS,
-                 offset_minutes=1, cutoff_hhmm=GRID_CUTOFF):
+def claude_window_slots(creds_path=CREDS, now=None, step_hours=WINDOW_HOURS,
+                        offset_minutes=1, cutoff_hhmm=GRID_CUTOFF):
     """High-level: fetch + build the slot grid in local time.
 
     Returns a JSON-friendly dict the GUI bridge can hand straight to JS:
@@ -185,5 +191,165 @@ def window_slots(creds_path=CREDS, now=None, step_hours=WINDOW_HOURS,
                         step_hours=step_hours, offset_minutes=offset_minutes,
                         active=active)
     return {"ok": True, "error": None, "active": active,
+            "tool": "claude", "label": "Claude 5-hour window",
             "anchor_iso": anchor_local.strftime("%Y-%m-%dT%H:%M"),
             "slots": slots}
+
+
+def _read_process_lines(stream, out):
+    try:
+        for line in iter(stream.readline, b""):
+            out.put(line.decode("utf-8", "replace").rstrip("\r\n"))
+    finally:
+        out.put(None)
+
+
+def _send_json_line(stdin, text):
+    stdin.write((text + "\n").encode("utf-8"))
+    stdin.flush()
+
+
+def _wait_for_jsonrpc_response(lines, wanted_id, proc, deadline):
+    while time.monotonic() < deadline:
+        timeout = max(0.05, min(0.25, deadline - time.monotonic()))
+        try:
+            line = lines.get(timeout=timeout)
+        except queue.Empty:
+            if proc.poll() is not None:
+                return None
+            continue
+        if line is None:
+            return None
+        if not line or not line.startswith("{"):
+            continue
+        try:
+            rec = json.loads(line)
+        except ValueError:
+            continue
+        if rec.get("id") == wanted_id:
+            return rec
+    return None
+
+
+def fetch_codex_rate_limits(settings=None, codex_path=None, timeout=_TIMEOUT):
+    """Read Codex rate limits from `codex.exe app-server`.
+
+    This mirrors the working CodexBarWin implementation: send a warm-up blank
+    line, initialize JSON-RPC, then call account/rateLimits/read.
+    """
+    exe = codex_path or resolve_codex(settings or {})
+    if not exe:
+        return None, "Codex CLI not found (set codex_path in settings.json)"
+
+    proc = None
+    try:
+        proc = subprocess.Popen(
+            [exe, "app-server", "--stdio"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        lines = queue.Queue()
+        threading.Thread(target=_read_process_lines, args=(proc.stdout, lines),
+                         daemon=True).start()
+        deadline = time.monotonic() + timeout
+        _send_json_line(proc.stdin, "")  # warm-up: app-server can drop first line
+        _send_json_line(proc.stdin, json.dumps({
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "initialize",
+            "params": {"clientInfo": {"name": "llm-scheduler", "version": "1.0"}},
+        }, separators=(",", ":")))
+        init = _wait_for_jsonrpc_response(lines, 0, proc, deadline)
+        if init is None or "result" not in init:
+            return None, "Codex app-server did not initialize"
+        _send_json_line(proc.stdin, '{"jsonrpc":"2.0","method":"initialized","params":{}}')
+        _send_json_line(proc.stdin, '{"jsonrpc":"2.0","id":1,"method":"account/rateLimits/read","params":{}}')
+        response = _wait_for_jsonrpc_response(lines, 1, proc, deadline)
+        if response is None:
+            return None, "Codex app-server returned no rate-limit data"
+        if "error" in response:
+            msg = (response.get("error") or {}).get("message") or "unknown error"
+            return None, f"Codex app-server error: {msg}"
+        if "result" not in response:
+            return None, "Codex app-server returned no rate-limit data"
+        return response["result"], None
+    except (OSError, ValueError, subprocess.SubprocessError) as e:
+        return None, f"Codex app-server error: {e}"
+    finally:
+        if proc is not None:
+            try:
+                if proc.poll() is None:
+                    proc.kill()
+            except OSError:
+                pass
+
+
+def parse_codex_primary_window(result, now_utc=None):
+    """Return (reset_utc, active, step_hours, error) from app-server JSON."""
+    now_utc = now_utc or datetime.now(timezone.utc)
+    if now_utc.tzinfo is None:
+        now_utc = now_utc.replace(tzinfo=timezone.utc)
+    try:
+        snapshot = result.get("rateLimits") or {}
+        primary = snapshot.get("primary") or {}
+    except AttributeError:
+        return None, False, WINDOW_HOURS, "Codex rate-limit response was empty"
+    if not primary:
+        return None, False, WINDOW_HOURS, "Codex rate-limit response had no primary window"
+    raw_reset = primary.get("resetsAt")
+    if not raw_reset:
+        return None, False, WINDOW_HOURS, None
+    try:
+        reset_utc = datetime.fromtimestamp(int(raw_reset), timezone.utc)
+    except (TypeError, ValueError, OSError):
+        return None, False, WINDOW_HOURS, "Codex returned an invalid reset time"
+    mins = primary.get("windowDurationMins") or WINDOW_HOURS * 60
+    try:
+        step_hours = max(1, int(mins) // 60)
+    except (TypeError, ValueError):
+        step_hours = WINDOW_HOURS
+    used = primary.get("usedPercent") or 0
+    try:
+        active = float(used) > 0 and reset_utc > now_utc
+    except (TypeError, ValueError):
+        active = reset_utc > now_utc
+    return reset_utc, active, step_hours, None
+
+
+def codex_window_slots(settings=None, now=None, codex_path=None,
+                       offset_minutes=1, cutoff_hhmm=GRID_CUTOFF):
+    now = now or datetime.now()
+    result, err = fetch_codex_rate_limits(settings=settings, codex_path=codex_path)
+    if err:
+        return {"ok": False, "error": err, "active": False, "tool": "codex",
+                "label": "Codex 5-hour window", "slots": []}
+    reset_utc, active, step_hours, err = parse_codex_primary_window(result)
+    if err:
+        return {"ok": False, "error": err, "active": False, "tool": "codex",
+                "label": "Codex 5-hour window", "slots": []}
+    if reset_utc is None or not active:
+        anchor_local = now
+        active = False
+    else:
+        anchor_local = reset_utc.astimezone().replace(tzinfo=None)
+    slots = build_slots(anchor_local, cutoff=_next_cutoff(now, cutoff_hhmm),
+                        step_hours=step_hours, offset_minutes=offset_minutes,
+                        active=active)
+    return {"ok": True, "error": None, "active": active, "tool": "codex",
+            "label": "Codex 5-hour window",
+            "anchor_iso": anchor_local.strftime("%Y-%m-%dT%H:%M"),
+            "slots": slots}
+
+
+def window_slots(creds_path=CREDS, now=None, step_hours=WINDOW_HOURS,
+                 offset_minutes=1, cutoff_hhmm=GRID_CUTOFF, tool="claude",
+                 settings=None, codex_path=None):
+    if tool == "codex":
+        return codex_window_slots(settings=settings, now=now, codex_path=codex_path,
+                                  offset_minutes=offset_minutes,
+                                  cutoff_hhmm=cutoff_hhmm)
+    return claude_window_slots(creds_path=creds_path, now=now, step_hours=step_hours,
+                               offset_minutes=offset_minutes,
+                               cutoff_hhmm=cutoff_hhmm)

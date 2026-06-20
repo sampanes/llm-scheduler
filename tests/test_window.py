@@ -10,7 +10,9 @@ import unittest
 from datetime import datetime, timedelta, timezone
 
 import catcore.window as window
-from catcore.window import build_slots, window_slots, _next_cutoff
+from catcore.window import (
+    build_slots, window_slots, parse_codex_primary_window, _next_cutoff,
+)
 
 
 class BuildSlots(unittest.TestCase):
@@ -112,6 +114,33 @@ class WindowSlotsBranches(unittest.TestCase):
         self.assertFalse(res["ok"])
         self.assertEqual(res["slots"], [])
         self.assertIn("usage API", res["error"])
+
+
+class CodexWindowParsing(unittest.TestCase):
+    def test_primary_window_maps_unix_reset_and_duration(self):
+        reset = int(datetime(2026, 6, 18, 20, 0, tzinfo=timezone.utc).timestamp())
+        result = {"rateLimits": {"primary": {
+            "usedPercent": 12,
+            "windowDurationMins": 300,
+            "resetsAt": reset,
+        }}}
+        now = datetime(2026, 6, 18, 19, 0, tzinfo=timezone.utc)
+        reset_utc, active, step_hours, err = parse_codex_primary_window(result, now_utc=now)
+        self.assertIsNone(err)
+        self.assertTrue(active)
+        self.assertEqual(step_hours, 5)
+        self.assertEqual(reset_utc, datetime(2026, 6, 18, 20, 0, tzinfo=timezone.utc))
+
+    def test_zero_usage_is_idle_even_with_reset(self):
+        reset = int(datetime(2026, 6, 18, 20, 0, tzinfo=timezone.utc).timestamp())
+        result = {"rateLimits": {"primary": {
+            "usedPercent": 0,
+            "windowDurationMins": 300,
+            "resetsAt": reset,
+        }}}
+        _, active, _, err = parse_codex_primary_window(result)
+        self.assertIsNone(err)
+        self.assertFalse(active)
 
 
 if __name__ == "__main__":

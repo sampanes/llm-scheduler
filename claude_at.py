@@ -41,9 +41,10 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from catcore import (
-    TOOL_DIR, PROJECTS_DIR, JOBS_FILE, PERMISSION_MODES, TERMINALS, DAY_NAMES,
+    TOOL_DIR, PROJECTS_DIR, JOBS_FILE, PERMISSION_MODES, CODEX_APPROVAL_MODES,
+    TERMINALS, DAY_NAMES, TOOLS,
     load_settings, load_jobs, scan_sessions, make_job, find_job, next_fire,
-    describe_target, describe_schedule, task_name_for, resolve_claude,
+    describe_target, describe_schedule, task_name_for, resolve_claude, resolve_codex,
     resolve_terminal, default_terminal, build_action, build_task_xml,
     register_job, delete_job, task_run, task_query_all, prune_jobs,
 )
@@ -56,7 +57,8 @@ from catcore import (
 def cmd_sessions(args, settings):
     days = 0 if args.all else (args.days if args.days is not None
                                else settings["sessions_days"])
-    rows = scan_sessions(days=days, dir_filter=args.dir, search=args.search)
+    rows = scan_sessions(days=days, dir_filter=args.dir, search=args.search,
+                         tool=args.tool)
     if not rows:
         print("no sessions found")
         return
@@ -87,6 +89,11 @@ def parse_schedule_args(args):
 
 
 def cmd_add(args, settings):
+    tool = args.tool or settings.get("tool", "claude")
+    if tool == "claude" and args.mode and args.mode not in PERMISSION_MODES:
+        raise SystemExit(f"unknown Claude permission mode: {args.mode}")
+    if tool == "codex" and args.mode and args.mode not in CODEX_APPROVAL_MODES:
+        raise SystemExit(f"unknown Codex approval mode: {args.mode}")
     if args.resume:
         mode, sid = "resume", args.resume
     elif args.new:
@@ -97,13 +104,16 @@ def cmd_add(args, settings):
     name = args.name or f"{mode}-{Path(args.dir).name}"
     job = make_job(
         name, args.dir, mode, sid, schedule,
-        args.model or settings["model"],
-        args.mode or settings["permission_mode"],
+        args.model or (settings["model"] if tool == "claude"
+                       else settings.get("codex_model", "default")),
+        args.mode or (settings["permission_mode"] if tool == "claude"
+                      else settings.get("codex_approval_mode", "default")),
         args.terminal or settings["terminal"] or default_terminal(settings),
         args.prompt, args.extra,
         not args.no_network_req if args.no_network_req is not None
         else settings["require_network"],
         not args.keep,
+        tool=tool,
     )
     if schedule["type"] == "once" and next_fire(job) is None:
         raise SystemExit("scheduled time is in the past")
@@ -137,7 +147,8 @@ def cmd_list(args, settings):
         when = f"{nf:%Y-%m-%d %H:%M}" if nf else "expired"
         print(f"{when}  [{status:<8}] {j['name']}-{j['id']}  "
               f"{describe_schedule(j)}  {describe_target(j)}  "
-              f"({j['model']}, {j['permission_mode']}, {j['terminal']})")
+              f"({j.get('tool', 'claude')}, {j['model']}, "
+              f"{j['permission_mode']}, {j['terminal']})")
 
 
 def cmd_rm(args, settings):
@@ -166,6 +177,7 @@ def cmd_xml(args, settings):
 def cmd_doctor(args, settings):
     print(f"tool dir      : {TOOL_DIR}")
     print(f"claude        : {resolve_claude(settings)}")
+    print(f"codex         : {resolve_codex(settings)}")
     print(f"wezterm-gui   : {resolve_terminal(settings, 'wezterm')}")
     print(f"wt            : {resolve_terminal(settings, 'wt')}")
     print(f"default term  : {settings['terminal'] or default_terminal(settings) + ' (auto)'}")
@@ -207,11 +219,13 @@ def main(argv=None):
     g.add_argument("--smoke", action="store_true", help=argparse.SUPPRESS)
 
     s = sub.add_parser("sessions", help="list known sessions")
+    s.add_argument("--tool", choices=TOOLS, default="claude")
     s.add_argument("--dir"); s.add_argument("--days", type=int)
     s.add_argument("--all", action="store_true")
     s.add_argument("--search")
 
     a = sub.add_parser("add", help="schedule a run")
+    a.add_argument("--tool", choices=TOOLS, default="claude")
     a.add_argument("--dir", required=True)
     tgt = a.add_mutually_exclusive_group()
     tgt.add_argument("--resume", metavar="SESSION_ID")
@@ -221,7 +235,7 @@ def main(argv=None):
     a.add_argument("--daily", action="store_true")
     a.add_argument("--weekly", metavar="MON,WED")
     a.add_argument("--time", metavar="HH:MM")
-    a.add_argument("--model"); a.add_argument("--mode", choices=PERMISSION_MODES)
+    a.add_argument("--model"); a.add_argument("--mode")
     a.add_argument("--terminal", choices=TERMINALS)
     a.add_argument("--prompt"); a.add_argument("--extra")
     a.add_argument("--name")

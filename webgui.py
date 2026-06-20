@@ -38,7 +38,8 @@ from catcore import (
     describe_schedule, task_name_for, build_action, build_task_xml,
     register_job, delete_job, task_run, task_query_all, prune_jobs,
     default_terminal, window_slots as _window_slots,
-    MODELS, PERMISSION_MODES, TERMINALS, DAY_ORDER, UUID_RE,
+    MODELS, CODEX_MODELS, PERMISSION_MODES, CODEX_APPROVAL_MODES,
+    TERMINALS, DAY_ORDER, UUID_RE,
 )
 
 WEBUI_DIR = Path(__file__).resolve().parent / "webui"
@@ -302,7 +303,7 @@ class Api:
         self._lock = threading.Lock()
         self._scan_cache = None   # (days, rows)
         self._jobs_cache = None   # rows
-        self._window_cache = None  # last good window_slots() result (session cache)
+        self._window_cache = {}  # tool -> last good window_slots() result
 
     def _prewarm(self, days):
         """Compute the heavy boot data off the UI thread, during cold start.
@@ -311,9 +312,9 @@ class Api:
         back to computing live (the prior behavior), so this can never crash the
         boot or wedge the thread."""
         try:
-            rows = self._scan_rows(days)
+            rows = self._scan_rows(days, tool="claude")
             with self._lock:
-                self._scan_cache = (days, rows)
+                self._scan_cache = (("claude", days), rows)
         except Exception:  # noqa: BLE001 — prewarm must never raise
             pass
         try:
@@ -339,6 +340,18 @@ class Api:
         self._calls.append("defaults")
         s = self.settings
         return {
+            "tools": [
+                {"id": "claude", "label": "Claude Code", "models": MODELS,
+                 "modes": PERMISSION_MODES, "mode_label": "Permissions",
+                 "model": s["model"], "mode": s["permission_mode"],
+                 "supports_sessions": True, "supports_window": True},
+                {"id": "codex", "label": "Codex CLI", "models": CODEX_MODELS,
+                 "modes": CODEX_APPROVAL_MODES, "mode_label": "Approval",
+                 "model": s.get("codex_model", "default"),
+                 "mode": s.get("codex_approval_mode", "default"),
+                 "supports_sessions": True, "supports_window": True},
+            ],
+            "tool": s.get("tool", "claude"),
             "models": MODELS, "modes": PERMISSION_MODES, "terminals": TERMINALS,
             "days": DAY_ORDER,
             "model": s["model"], "mode": s["permission_mode"],
@@ -347,23 +360,24 @@ class Api:
             "sessions_days": s.get("sessions_days", 14),
         }
 
-    def _scan_rows(self, days):
+    def _scan_rows(self, days, tool="claude"):
         return [{
             "id": r["id"], "dir": r["dir"], "title": r["title"],
             "active": r["active"], "mtime": r["mtime"].isoformat(),
-        } for r in scan_sessions(days=days)]
+        } for r in scan_sessions(days=days, tool=tool)]
 
-    def scan(self, days=0):
+    def scan(self, days=0, tool="claude"):
         self._calls.append("scan")
         try:
             days = int(days or 0)
         except (TypeError, ValueError):
             days = 0
+        tool = tool if tool in ("claude", "codex") else "claude"
         with self._lock:
-            if self._scan_cache and self._scan_cache[0] == days:
+            if self._scan_cache and self._scan_cache[0] == (tool, days):
                 rows, self._scan_cache = self._scan_cache[1], None
                 return rows
-        return self._scan_rows(days)
+        return self._scan_rows(days, tool=tool)
 
     def list_jobs(self):
         self._calls.append("list_jobs")
@@ -384,6 +398,7 @@ class Api:
                 "id": j["id"],
                 "label": f"{j['name']}-{j['id']}",
                 "name": j["name"],
+                "tool": j.get("tool", "claude"),
                 "next": nf.isoformat() if nf else None,
                 "schedule_disp": describe_schedule(j),
                 "target_disp": describe_target(j),
@@ -400,8 +415,8 @@ class Api:
             })
         return out
 
-    def window_slots(self, refresh=False):
-        """The Claude 5h-window quick-pick grid for the schedule form.
+    def window_slots(self, tool="claude", refresh=False):
+        """The Claude/Codex 5h-window quick-pick grid for the schedule form.
 
         Returns catcore.window_slots()'s dict. Session-cached: the future grid
         {anchor, +5h, …} stays correct as long as the anchor (next window open)
@@ -410,23 +425,25 @@ class Api:
         or for the idle case (anchor=now drifts). Network/auth failures aren't
         cached — the next call retries — and never raise into the bridge."""
         self._calls.append("window_slots")
+        tool = tool if tool in ("claude", "codex") else "claude"
         if not refresh:
             with self._lock:
-                cache = self._window_cache
+                cache = self._window_cache.get(tool)
             if cache is not None and cache.get("active"):
                 try:
                     if datetime.fromisoformat(cache["anchor_iso"]) > datetime.now():
                         return cache
                 except (KeyError, TypeError, ValueError):
                     pass
-        res = _window_slots()
+        res = _window_slots(tool=tool, settings=self.settings)
         if res.get("ok"):
             with self._lock:
-                self._window_cache = res
+                self._window_cache[tool] = res
         return res
 
     # ---- build a job from the form dict (validates) ----
     def _job_from_form(self, f):
+        tool = f.get("tool") if f.get("tool") in ("claude", "codex") else "claude"
         target_mode = f.get("target") or "continue"
         sid = (f.get("session") or "").strip()
         if target_mode == "resume" and not UUID_RE.match(sid):
@@ -458,13 +475,19 @@ class Api:
                 raise ValueError("Pick at least one weekday (or hit M–F).")
             schedule = {"type": "weekly", "days": days, "time": t}
         name = (f.get("name") or "").strip() or f"{target_mode}-{Path(d).name}"
+        if tool == "codex":
+            model = f.get("model") or self.settings.get("codex_model", "default")
+            mode = f.get("mode") or self.settings.get("codex_approval_mode", "default")
+        else:
+            model = f.get("model") or self.settings["model"]
+            mode = f.get("mode") or self.settings["permission_mode"]
         return make_job(
             name, d, target_mode, sid, schedule,
-            f.get("model") or self.settings["model"],
-            f.get("mode") or self.settings["permission_mode"],
+            model, mode,
             f.get("terminal") or self.settings["terminal"] or default_terminal(self.settings),
             f.get("prompt") or "", f.get("extra") or "",
             bool(f.get("net", True)), not bool(f.get("keep", False)),
+            tool=tool,
         )
 
     # ---- writes ----

@@ -14,10 +14,12 @@ from unittest.mock import patch
 
 from catcore.config import DAY_NAMES
 from catcore.taskxml import (
-    build_claude_args, build_trigger_xml, build_action, build_task_xml,
+    build_claude_args, build_codex_args, build_trigger_xml, build_action,
+    build_task_xml,
 )
 
 FAKE_CLAUDE = r"C:\fake\bin\claude.exe"
+FAKE_CODEX = r"C:\fake\bin\codex.exe"
 FAKE_WEZTERM = r"C:\fake\WezTerm\wezterm-gui.exe"
 FAKE_WT = r"C:\fake\wt.exe"
 SCRIPT_HOSTS = ("powershell", "cmd.exe", "pythonw", "python.exe")
@@ -65,6 +67,28 @@ class BuildClaudeArgs(unittest.TestCase):
         self.assertEqual(args, [
             "--model", "opus", "--permission-mode", "auto", "--continue",
             "--fork-session", "--add-dir", r"C:\proj dir", "go on"])
+
+
+class BuildCodexArgs(unittest.TestCase):
+    def test_continue_uses_resume_last_and_omits_defaults(self):
+        self.assertEqual(
+            build_codex_args(job(tool="codex", model="default",
+                                 permission_mode="default"), {}),
+            ["resume", "--last"])
+
+    def test_resume_passes_session_id_after_options(self):
+        args = build_codex_args(job(tool="codex", model="gpt-5.5",
+                                    permission_mode="on-request",
+                                    target={"mode": "resume", "session_id": "sid-9"}), {})
+        self.assertEqual(args, ["resume", "-m", "gpt-5.5", "-a", "on-request", "sid-9"])
+
+    def test_new_session_prompt_and_extra_args(self):
+        args = build_codex_args(
+            job(tool="codex", model="gpt-5.5", permission_mode="never",
+                target={"mode": "new", "session_id": ""},
+                extra_args=r'--add-dir "C:\proj dir"', prompt="go on"), {})
+        self.assertEqual(args, [
+            "-m", "gpt-5.5", "-a", "never", "--add-dir", r"C:\proj dir", "go on"])
 
 
 class BuildTriggerXml(unittest.TestCase):
@@ -124,6 +148,14 @@ class BuildAction(unittest.TestCase):
         claude.return_value = None
         with self.assertRaises(RuntimeError):
             build_action(job(terminal="console"), {})
+
+    @patch("catcore.taskxml.resolve_codex", return_value=FAKE_CODEX)
+    def test_console_runs_codex_directly(self, codex, _claude, term):
+        cmd, argstr, _ = build_action(
+            job(tool="codex", model="default", permission_mode="default",
+                terminal="console"), {})
+        self.assertEqual(cmd, FAKE_CODEX)
+        self.assertEqual(argstr, "resume --last")
 
     def test_security_no_script_host_in_action(self, _claude, term):
         """The fire-time command is a signed binary, never a script host."""

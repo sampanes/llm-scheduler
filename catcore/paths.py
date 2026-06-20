@@ -4,6 +4,7 @@ Honors explicit paths from settings.json first, then PATH, then known install
 locations. Returns None when an executable can't be found.
 """
 
+import os
 import shutil
 from pathlib import Path
 
@@ -20,6 +21,35 @@ def resolve_claude(settings):
         return p
     cand = Path.home() / ".local" / "bin" / "claude.exe"
     return str(cand) if cand.is_file() else None
+
+
+def resolve_codex(settings):
+    """Resolve the real Codex executable.
+
+    The npm install also places codex/codex.cmd shims in %APPDATA%\npm. For a
+    scheduled task we want the vendored codex.exe itself so the fire-time action
+    stays a binary, not a shell wrapper.
+    """
+    p = settings.get("codex_path")
+    if p and Path(p).is_file():
+        return p
+
+    appdata = os.environ.get("APPDATA")
+    if appdata:
+        vendor_root = (Path(appdata) / "npm" / "node_modules" / "@openai" /
+                       "codex" / "node_modules")
+        if vendor_root.is_dir():
+            try:
+                for cand in vendor_root.rglob("codex.exe"):
+                    if cand.is_file():
+                        return str(cand)
+            except OSError:
+                pass
+
+    p = shutil.which("codex.exe")
+    if p and Path(p).is_file():
+        return p
+    return None
 
 
 def resolve_terminal(settings, terminal):

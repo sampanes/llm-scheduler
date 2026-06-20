@@ -16,6 +16,7 @@ TOOL_DIR = Path(__file__).resolve().parent.parent
 JOBS_FILE = TOOL_DIR / "jobs.json"
 SETTINGS_FILE = TOOL_DIR / "settings.json"
 PROJECTS_DIR = Path.home() / ".claude" / "projects"
+CODEX_SESSIONS_DIR = Path.home() / ".codex" / "sessions"
 TASK_FOLDER = "ClaudeAt"  # tasks live under \ClaudeAt\ in Task Scheduler
 
 UUID_RE = re.compile(
@@ -29,11 +30,17 @@ DAY_ORDER = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]
 PERMISSION_MODES = ["auto", "acceptEdits", "bypassPermissions", "dontAsk",
                     "plan", "default"]
 MODELS = ["fable", "opus", "sonnet", "haiku"]
+CODEX_MODELS = ["default", "gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "codex-auto-review"]
+CODEX_APPROVAL_MODES = ["default", "untrusted", "on-request", "never", "on-failure"]
 TERMINALS = ["wezterm", "wt", "console"]
+TOOLS = ["claude", "codex"]
 
 DEFAULT_SETTINGS = {
+    "tool": "claude",
     "model": "opus",
     "permission_mode": "auto",
+    "codex_model": "default",        # "default" = inherit ~/.codex/config.toml
+    "codex_approval_mode": "default",  # "default" = inherit Codex config
     "terminal": "",                 # "" = auto-detect (wezterm/wt if installed,
                                     # else console); set a value here to pin one
     "require_network": True,
@@ -41,6 +48,7 @@ DEFAULT_SETTINGS = {
     "sessions_days": 14,            # default recency filter in GUI
     "default_dir": str(Path.home()),  # no-pick fallback (folder picker's start dir)
     "claude_path": "",              # auto-detected when empty
+    "codex_path": "",               # real codex.exe, not the npm .cmd shim
     "wezterm_path": "",
     "wt_path": "",
     "missed_run_window_hours": 25,  # one-shots still fire this late if missed

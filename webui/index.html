@@ -67,6 +67,10 @@
 
         <div class="row top">
           <div class="field-col">
+            <label for="f-tool">Tool</label>
+            <select id="f-tool"></select>
+          </div>
+          <div class="field-col">
             <label for="f-time">Time</label>
             <input type="time" id="f-time">
             <button class="btn btn-secondary btn-sm" id="btn-shot" type="button"
@@ -87,10 +91,10 @@
 
         <div class="win-slots" id="win-slots" hidden>
           <span class="claude-spark win-spark" data-icon="spark" aria-hidden="true"></span>
-          <span class="win-lead">5-hour window</span>
+          <span class="win-lead" id="win-lead">5-hour window</span>
           <span class="win-chips" id="win-chips"></span>
           <button class="btn btn-ghost btn-sm win-refresh" id="btn-win-refresh" type="button"
-            title="Re-check your current Claude 5-hour usage window">↻</button>
+            title="Re-check your current usage window">↻</button>
           <span class="win-note" id="win-note"></span>
         </div>
 
@@ -130,9 +134,9 @@
           </div>
 
           <div class="row">
-            <div class="field-col"><label for="f-model">Model</label>
+            <div class="field-col"><label for="f-model" id="f-model-label">Model</label>
               <select id="f-model"></select></div>
-            <div class="field-col"><label for="f-mode">Permissions</label>
+            <div class="field-col"><label for="f-mode" id="f-mode-label">Permissions</label>
               <select id="f-mode"></select></div>
             <div class="field-col"><label for="f-term">Terminal</label>
               <select id="f-term"></select></div>
@@ -143,7 +147,7 @@
           <div class="row">
             <label class="radio"><input type="checkbox" id="f-net" checked> Require network</label>
             <label class="radio"><input type="checkbox" id="f-keep"> Keep one-shot task after run</label>
-            <div class="field-col grow"><label for="f-extra">Extra claude args</label>
+            <div class="field-col grow"><label for="f-extra">Extra args</label>
               <input type="text" id="f-extra" placeholder='e.g. --fork-session --add-dir "C:\x y"'></div>
           </div>
         </div>
@@ -182,8 +186,8 @@
     <span class="claude-spark card-spark" data-icon="spark" aria-hidden="true"></span>
     <span class="brand-mark splash-mark" data-icon="logo" aria-hidden="true"></span>
     <div class="big-spinner"></div>
-    <div class="msg">Reading your Claude sessions…</div>
-    <div class="sub">Scanning <code>~/.claude/projects</code>…</div>
+    <div class="msg">Reading your sessions…</div>
+    <div class="sub">Scanning local session history…</div>
   </div>
 </div>
 

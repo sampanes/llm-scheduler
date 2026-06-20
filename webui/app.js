@@ -21,6 +21,17 @@
   // ---- backend bridge (or mock) ----
   const MOCK = {
     defaults: () => ({
+      tools: [
+        { id: "claude", label: "Claude Code", models: ["fable", "opus", "sonnet", "haiku"],
+          modes: ["auto", "acceptEdits", "bypassPermissions", "dontAsk", "plan", "default"],
+          mode_label: "Permissions", model: "opus", mode: "auto",
+          supports_sessions: true, supports_window: true },
+        { id: "codex", label: "Codex CLI", models: ["default", "gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "codex-auto-review"],
+          modes: ["default", "untrusted", "on-request", "never", "on-failure"],
+          mode_label: "Approval", model: "default", mode: "default",
+          supports_sessions: true, supports_window: true },
+      ],
+      tool: "claude",
       models: ["fable", "opus", "sonnet", "haiku"],
       modes: ["auto", "acceptEdits", "bypassPermissions", "dontAsk", "plan", "default"],
       terminals: ["wezterm", "wt", "console"],
@@ -145,18 +156,41 @@
   function md(s) { const [, m, d] = s.split("-"); return `${m}/${d}`; }                  // -> 06/18
 
   // ---- form state ----
-  const state = { target: "continue", session: "", sessionTitle: "", dir: "", sessions: [] };
+  const state = { tool: "claude", target: "continue", session: "", sessionTitle: "", dir: "", sessions: [], tools: [] };
+
+  function toolDef(id = state.tool) {
+    return state.tools.find((t) => t.id === id) || state.tools[0] || {
+      id: "claude", label: "Claude Code", models: [], modes: [],
+      mode_label: "Permissions", supports_sessions: true, supports_window: true,
+    };
+  }
+
+  function fillOptions(sel, arr, val) {
+    $(sel).innerHTML = (arr || []).map((x) => `<option${x === val ? " selected" : ""}>${esc(x)}</option>`).join("");
+  }
+
+  function applyToolFields(id) {
+    const t = toolDef(id);
+    state.tool = t.id;
+    $("#f-model-label").textContent = "Model";
+    $("#f-mode-label").textContent = t.mode_label || "Mode";
+    fillOptions("#f-model", t.models || [], t.model || (t.models || [])[0] || "");
+    fillOptions("#f-mode", t.modes || [], t.mode || (t.modes || [])[0] || "");
+    $("#win-lead").textContent = t.id === "codex" ? "Codex 5-hour window" : "Claude 5-hour window";
+    $("#btn-win-refresh").title = `Re-check your current ${t.label || t.id} usage window`;
+  }
 
   function updateTargetDesc() {
     const d = esc(state.dir || "—");
+    const label = esc(toolDef().label || state.tool);
     let html;
     if (state.target === "resume" && state.session) {
       const t = state.sessionTitle || (state.session.slice(0, 8) + "…");
-      html = `Resume <b>"${esc(t.slice(0, 64))}"</b> in <b>${d}</b>`;
+      html = `${label}: resume <b>"${esc(t.slice(0, 64))}"</b> in <b>${d}</b>`;
     } else if (state.target === "new") {
-      html = `<b>New</b> session in <b>${d}</b>`;
+      html = `${label}: <b>new</b> session in <b>${d}</b>`;
     } else {
-      html = `<b>Continue</b> latest chat in <b>${d}</b>`;
+      html = `${label}: <b>continue</b> latest session in <b>${d}</b>`;
     }
     $("#target-desc").innerHTML = html;
   }
@@ -209,13 +243,13 @@
     $("#sess-spin").style.display = ""; status("scanning sessions…", true);
     $("#overlay").classList.add("show");
     try {
-      const rows = await call("scan", days);
+      const rows = await call("scan", days, state.tool);
       state.sessions = rows || [];
       const dirs = Array.from(new Set(state.sessions.map((s) => s.dir))).sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
       const sel = $("#sess-dir");
       sel.innerHTML = `<option value="">All</option>` + dirs.map((d) => `<option value="${esc(d)}">${esc(d)}</option>`).join("");
       renderSessions();
-      status(`${state.sessions.length} sessions${isMock() ? " (mock data — open in the app for real ones)" : ""}`);
+      status(`${state.sessions.length} ${toolDef().label || state.tool} sessions${isMock() ? " (mock data — open in the app for real ones)" : ""}`);
     } catch (e) {
       status("scan failed"); toast("Session scan failed: " + e, true);
     } finally {
@@ -238,6 +272,7 @@
             <div class="name">${esc(j.label)}</div>
             <div class="sub">${esc(j.schedule_disp)} · ${esc(j.target_disp)}</div>
             <div class="tags">
+              <span class="chip">${esc(j.tool || "claude")}</span>
               <span class="chip">${esc(j.model)}</span>
               <span class="chip">${esc(j.mode)}</span>
               <span class="chip">${esc(j.terminal)}</span>
@@ -274,6 +309,9 @@
   }
   function loadJob(id, j) {
     if (!j) return;
+    state.tool = j.tool || "claude";
+    $("#f-tool").value = state.tool;
+    applyToolFields(state.tool);
     state.target = j.target_mode || "continue"; state.session = j.session_id || ""; state.dir = j.dir || "";
     $(`input[name=target][value=${state.target}]`).checked = true;
     $("#f-session").value = state.session; $("#f-dir").value = state.dir;
@@ -286,6 +324,8 @@
     else if (s.time) $("#f-time").value = s.time;
     $$("#days-row .day-btn").forEach((b) => b.setAttribute("aria-pressed", String(s.type === "weekly" && (s.days || []).includes(b.dataset.day))));
     openAdv(true); updateTargetDesc();
+    refreshSessions();
+    loadWindowSlots(false, true);
     status(`loaded ${j.label} into the form (Schedule makes a new job)`);
   }
 
@@ -293,6 +333,7 @@
   function gatherForm() {
     const when = ($('input[name=when]:checked') || {}).value || "once";
     return {
+      tool: state.tool,
       target: ($('input[name=target]:checked') || {}).value || "continue",
       session: $("#f-session").value.trim(),
       dir: $("#f-dir").value.trim(),
@@ -350,14 +391,15 @@
     }).join("");
     $$(".win-chip", chips).forEach((b) => b.onclick = () => applySlot(res.slots[+b.dataset.i]));
     note.className = "win-note";
+    $("#win-lead").textContent = res.label || $("#win-lead").textContent;
     note.textContent = res.active ? ""
       : "no window open — “Open now” starts a fresh 5-hour window";
     wrap.hidden = false;
     return (res.slots || [])[0] || null;
   }
-  async function loadWindowSlots(applyDefault) {
+  async function loadWindowSlots(applyDefault, refresh = false) {
     try {
-      const res = await call("window_slots");
+      const res = await call("window_slots", state.tool, refresh);
       const first = renderWindowSlots(res);
       if (applyDefault && first) applySlot(first, false);  // silent: it's the default
     } catch (e) {
@@ -379,8 +421,15 @@
     $$("#theme-toggle button").forEach((b) => b.onclick = () => setTheme(b.dataset.themeVal));
 
     const d = await call("defaults");
-    const fill = (sel, arr, val) => { $(sel).innerHTML = arr.map((x) => `<option${x === val ? " selected" : ""}>${esc(x)}</option>`).join(""); };
-    fill("#f-model", d.models, d.model); fill("#f-mode", d.modes, d.mode); fill("#f-term", d.terminals, d.terminal);
+    state.tools = d.tools || [];
+    state.tool = d.tool || "claude";
+    fillOptions("#f-tool", state.tools.map((t) => t.id), state.tool);
+    $$("#f-tool option").forEach((o) => {
+      const t = toolDef(o.value);
+      o.textContent = t.label || o.value;
+    });
+    applyToolFields(state.tool);
+    fillOptions("#f-term", d.terminals, d.terminal);
     $("#sess-days").value = d.sessions_days;
     state.dir = d.default_dir; $("#f-dir").value = d.default_dir;
     $("#days-row").innerHTML = d.days.map((dy) => `<button type="button" class="day-btn" data-day="${dy}" aria-pressed="false">${dy}</button>`).join("");
@@ -395,6 +444,14 @@
     // wiring
     $("#sess-search").addEventListener("input", renderSessions);
     $("#sess-dir").addEventListener("change", renderSessions);
+    $("#f-tool").onchange = async () => {
+      state.tool = $("#f-tool").value || "claude";
+      state.target = "continue"; state.session = ""; state.sessionTitle = "";
+      $("#f-session").value = ""; $(`input[name=target][value=continue]`).checked = true;
+      applyToolFields(state.tool); updateTargetDesc();
+      await refreshSessions();
+      loadWindowSlots(true, true);
+    };
     $("#btn-refresh").onclick = refreshSessions;
     $("#btn-pend-refresh").onclick = refreshPending;
     $("#btn-clear").onclick = () => { state.target = "continue"; state.session = ""; state.sessionTitle = ""; state.dir = d.default_dir;
@@ -419,7 +476,7 @@
     };
     $("#btn-schedule").onclick = doSchedule;
     $("#btn-preview").onclick = doPreview;
-    $("#btn-win-refresh").onclick = () => loadWindowSlots(false);
+    $("#btn-win-refresh").onclick = () => loadWindowSlots(false, true);
     $("#btn-prune").onclick = async () => { const r = await call("prune"); if (r && r.error) { toast(r.error, true); return; } toast(`Pruned ${r ? r.count : 0} job(s).`); refreshPending(); };
     $$("[data-close-modal]").forEach((b) => b.onclick = () => $("#modal").classList.remove("show"));
     $("#modal").addEventListener("click", (e) => { if (e.target.id === "modal") $("#modal").classList.remove("show"); });

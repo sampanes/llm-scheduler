@@ -16,7 +16,7 @@ from subprocess import list2cmdline
 from xml.sax.saxutils import escape as xml_escape
 
 from .config import DAY_NAMES
-from .paths import resolve_claude, resolve_terminal
+from .paths import resolve_claude, resolve_codex, resolve_terminal
 from .jobmodel import describe_target
 
 
@@ -38,27 +38,72 @@ def build_claude_args(job, settings):
     return args
 
 
+def _split_extra(extra):
+    extra = (extra or "").strip()
+    if not extra:
+        return []
+    # posix shlex would eat Windows backslashes; double them first so quoted
+    # paths like --add-dir "C:\x y" survive the split.
+    return shlex.split(extra.replace("\\", "\\\\"))
+
+
+def build_codex_args(job, settings):
+    """Argument vector for codex.exe (excluding the exe itself)."""
+    common = []
+    model = job.get("model") or "default"
+    if model != "default":
+        common += ["-m", model]
+    approval = job.get("permission_mode") or "default"
+    if approval != "default":
+        common += ["-a", approval]
+    common += _split_extra(job.get("extra_args"))
+
+    target = job["target"]
+    prompt = (job.get("prompt") or "").strip()
+    if target["mode"] == "resume":
+        args = ["resume"] + common + [target["session_id"]]
+    elif target["mode"] == "continue":
+        args = ["resume"] + common + ["--last"]
+    else:
+        args = common
+    if prompt:
+        args.append(prompt)
+    return args
+
+
+def build_tool_args(job, settings):
+    if job.get("tool", "claude") == "codex":
+        return build_codex_args(job, settings)
+    return build_claude_args(job, settings)
+
+
 def build_action(job, settings):
     """(command, argument_string, working_dir) for the task's <Exec>."""
-    claude = resolve_claude(settings)
-    if not claude:
-        raise RuntimeError("claude executable not found (set claude_path in settings.json)")
-    cargs = build_claude_args(job, settings)
+    tool = job.get("tool", "claude")
+    if tool == "codex":
+        exe = resolve_codex(settings)
+        if not exe:
+            raise RuntimeError("codex executable not found (set codex_path in settings.json)")
+    else:
+        exe = resolve_claude(settings)
+        if not exe:
+            raise RuntimeError("claude executable not found (set claude_path in settings.json)")
+    cargs = build_tool_args(job, settings)
     wd = job["dir"]
     if job["terminal"] == "wezterm":
         term = resolve_terminal(settings, "wezterm")
         if not term:
             raise RuntimeError("wezterm-gui.exe not found")
-        argstr = list2cmdline(["start", "--cwd", wd, "--", claude] + cargs)
+        argstr = list2cmdline(["start", "--cwd", wd, "--", exe] + cargs)
         return term, argstr, wd
     if job["terminal"] == "wt":
         term = resolve_terminal(settings, "wt")
         if not term:
             raise RuntimeError("wt.exe not found")
-        argstr = list2cmdline(["-d", wd, claude] + cargs)
+        argstr = list2cmdline(["-d", wd, exe] + cargs)
         return term, argstr, wd
-    # console: claude.exe is the action; Task Scheduler gives it a console
-    return claude, list2cmdline(cargs), wd
+    # console: the tool exe is the action; Task Scheduler gives it a console
+    return exe, list2cmdline(cargs), wd
 
 
 def build_trigger_xml(job, settings):
@@ -105,7 +150,8 @@ def build_task_xml(job, settings):
     delete_after = ""
     if job["schedule"]["type"] == "once" and job.get("delete_after_run", True):
         delete_after = "\n    <DeleteExpiredTaskAfter>PT1H</DeleteExpiredTaskAfter>"
-    desc = (f"claude-at job '{job['name']}' — {describe_target(job)} "
+    tool = job.get("tool", "claude")
+    desc = (f"claude-at {tool} job '{job['name']}' — {describe_target(job)} "
             f"({job['model']}, {job['permission_mode']})")
     return f"""<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
