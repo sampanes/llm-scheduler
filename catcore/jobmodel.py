@@ -67,7 +67,7 @@ def next_fire(job, now=None):
 
 def make_job(name, dirpath, target_mode, session_id, schedule, model,
              permission_mode, terminal, prompt, extra_args,
-             require_network, delete_after_run, tool="claude"):
+             require_network, delete_after_run, tool="claude", effort=""):
     return {
         "id": uuid.uuid4().hex[:8],
         "name": sanitize_name(name),
@@ -77,6 +77,7 @@ def make_job(name, dirpath, target_mode, session_id, schedule, model,
         "schedule": schedule,
         "model": model,
         "permission_mode": permission_mode,
+        "effort": effort or "",
         "terminal": terminal,
         "prompt": prompt or "",
         "extra_args": extra_args or "",

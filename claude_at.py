@@ -23,7 +23,7 @@ Usage:
   claude_at.py add --dir D (--resume ID | --continue | --new)
                   (--at "YYYY-MM-DD HH:MM" | --daily --time HH:MM
                    | --weekly MON,WED --time HH:MM)
-                  [--model opus] [--mode auto] [--terminal wezterm]
+                  [--model opus] [--mode auto] [--effort high] [--terminal wezterm]
                   [--prompt TEXT] [--extra ARGS] [--name NAME]
                   [--keep] [--no-network-req] [--dry-run]
   claude_at.py list                 # pending runs, soonest first
@@ -42,7 +42,7 @@ from pathlib import Path
 
 from catcore import (
     TOOL_DIR, PROJECTS_DIR, JOBS_FILE, PERMISSION_MODES, CODEX_APPROVAL_MODES,
-    TERMINALS, DAY_NAMES, TOOLS,
+    TERMINALS, EFFORT_LEVELS, DAY_NAMES, TOOLS,
     load_settings, load_jobs, scan_sessions, make_job, find_job, next_fire,
     describe_target, describe_schedule, task_name_for, resolve_claude, resolve_codex,
     resolve_terminal, default_terminal, build_action, build_task_xml,
@@ -114,6 +114,8 @@ def cmd_add(args, settings):
         else settings["require_network"],
         not args.keep,
         tool=tool,
+        # effort is claude-only (--effort); codex jobs store "" and never emit it
+        effort=(args.effort or settings.get("effort", "")) if tool == "claude" else "",
     )
     if schedule["type"] == "once" and next_fire(job) is None:
         raise SystemExit("scheduled time is in the past")
@@ -236,6 +238,7 @@ def main(argv=None):
     a.add_argument("--weekly", metavar="MON,WED")
     a.add_argument("--time", metavar="HH:MM")
     a.add_argument("--model"); a.add_argument("--mode")
+    a.add_argument("--effort", choices=EFFORT_LEVELS)
     a.add_argument("--terminal", choices=TERMINALS)
     a.add_argument("--prompt"); a.add_argument("--extra")
     a.add_argument("--name")

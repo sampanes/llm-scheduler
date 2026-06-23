@@ -14,7 +14,7 @@ from catcore import (
     register_job, delete_job, task_run, prune_jobs, task_query_all, next_fire,
     describe_target, describe_schedule, sanitize_name, task_name_for,
     UUID_RE, PERMISSION_MODES, CODEX_APPROVAL_MODES, MODELS, CODEX_MODELS,
-    TERMINALS, DAY_ORDER, default_terminal,
+    TERMINALS, EFFORT_LEVELS, DAY_ORDER, default_terminal,
 )
 
 
@@ -281,6 +281,14 @@ def run_gui(settings, smoke=False):
                               values=PERMISSION_MODES, width=16,
                               state="readonly")
     mode_combo.pack(side="left", padx=6)
+    # Effort is claude-only (--effort); apply_tool_config disables it for codex.
+    effort_label = ttk.Label(arow4, text="Effort:")
+    effort_label.pack(side="left", padx=(14, 0))
+    effort_var = tk.StringVar(value=settings.get("effort", ""))
+    effort_combo = ttk.Combobox(arow4, textvariable=effort_var,
+                                values=[""] + EFFORT_LEVELS, width=8,
+                                state="readonly")
+    effort_combo.pack(side="left", padx=6)
     ttk.Label(arow4, text="Terminal:").pack(side="left", padx=(14, 0))
     term_var = tk.StringVar(value=settings["terminal"] or default_terminal(settings))
     ttk.Combobox(arow4, textvariable=term_var, values=TERMINALS, width=9,
@@ -309,6 +317,8 @@ def run_gui(settings, smoke=False):
                 model_var.set(settings.get("codex_model", "default"))
             if reset_values or mode_var.get() not in CODEX_APPROVAL_MODES:
                 mode_var.set(settings.get("codex_approval_mode", "default"))
+            effort_var.set("")                 # --effort is claude-only
+            effort_combo.config(state="disabled")
         else:
             model_combo["values"] = MODELS
             mode_combo["values"] = PERMISSION_MODES
@@ -317,6 +327,7 @@ def run_gui(settings, smoke=False):
                 model_var.set(settings.get("model", "opus"))
             if reset_values or mode_var.get() not in PERMISSION_MODES:
                 mode_var.set(settings.get("permission_mode", "auto"))
+            effort_combo.config(state="readonly")
         update_target_desc()
 
     def on_tool_change(*_):
@@ -337,9 +348,9 @@ def run_gui(settings, smoke=False):
         pad = {"padx": 12, "pady": 6}
         r1 = ttk.Frame(top); r1.pack(fill="x", **pad)
         ttk.Label(r1, text="Effort:").pack(side="left")
-        eff_var = tk.StringVar(value="")
+        eff_var = tk.StringVar(value=effort_var.get())
         ttk.Combobox(r1, textvariable=eff_var, width=10, state="readonly",
-                     values=["", "low", "medium", "high", "xhigh", "max"]
+                     values=[""] + EFFORT_LEVELS
                      ).pack(side="left", padx=8)
         ttk.Label(r1, text="(how hard the model thinks)",
                   foreground="gray40").pack(side="left")
@@ -361,14 +372,16 @@ def run_gui(settings, smoke=False):
 
         def apply_args():
             parts = []
-            if eff_var.get():
-                parts += ["--effort", eff_var.get()]
             if fork_var.get():
                 parts.append("--fork-session")
             if adddir_var.get().strip():
                 parts.append(list2cmdline(["--add-dir", adddir_var.get().strip()]))
             if free_var.get().strip():
                 parts.append(free_var.get().strip())
+            # Effort is a first-class form field now (its own --effort flag), so set
+            # the main-form var instead of folding --effort into extra_args, which
+            # would double-emit the flag.
+            effort_var.set(eff_var.get())
             extra_var.set(" ".join(parts))
             top.destroy()
         r5 = ttk.Frame(top); r5.pack(fill="x", **pad)
@@ -413,7 +426,8 @@ def run_gui(settings, smoke=False):
                         mode_var.get(), term_var.get(),
                         prompt_text.get("1.0", "end").strip(),
                         extra_var.get().strip(), net_var.get(),
-                        not keep_var.get(), tool=current_tool())
+                        not keep_var.get(), tool=current_tool(),
+                        effort=effort_var.get())
 
     def do_schedule():
         try:
@@ -566,6 +580,7 @@ def run_gui(settings, smoke=False):
         prompt_text.delete("1.0", "end")
         prompt_text.insert("1.0", j.get("prompt", ""))
         extra_var.set(j.get("extra_args", ""))
+        effort_var.set(j.get("effort", ""))
         session_title["text"] = ""
         set_advanced(True)
         update_target_desc()

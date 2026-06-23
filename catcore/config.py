@@ -34,6 +34,9 @@ CODEX_MODELS = ["default", "gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "codex-auto-rev
 CODEX_APPROVAL_MODES = ["default", "untrusted", "on-request", "never", "on-failure"]
 TERMINALS = ["wezterm", "wt", "console"]
 TOOLS = ["claude", "codex"]
+# claude --effort tiers (how hard the model thinks). "" / absent = emit no flag,
+# i.e. let claude inherit its own effortLevel setting.
+EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"]
 
 DEFAULT_SETTINGS = {
     "tool": "claude",
@@ -41,6 +44,7 @@ DEFAULT_SETTINGS = {
     "permission_mode": "auto",
     "codex_model": "default",        # "default" = inherit ~/.codex/config.toml
     "codex_approval_mode": "default",  # "default" = inherit Codex config
+    "effort": "",                   # "" = inherit claude's own effortLevel
     "terminal": "",                 # "" = auto-detect (wezterm/wt if installed,
                                     # else console); set a value here to pin one
     "require_network": True,

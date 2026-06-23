@@ -35,8 +35,9 @@
       models: ["fable", "opus", "sonnet", "haiku"],
       modes: ["auto", "acceptEdits", "bypassPermissions", "dontAsk", "plan", "default"],
       terminals: ["wezterm", "wt", "console"],
+      efforts: ["low", "medium", "high", "xhigh", "max"],
       days: ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"],
-      model: "opus", mode: "auto", terminal: "wezterm",
+      model: "opus", mode: "auto", terminal: "wezterm", effort: "",
       default_dir: "C:\\Users\\you\\Documents\\Projects", sessions_days: 14,
     }),
     scan: () => ([
@@ -176,6 +177,10 @@
     $("#f-mode-label").textContent = t.mode_label || "Mode";
     fillOptions("#f-model", t.models || [], t.model || (t.models || [])[0] || "");
     fillOptions("#f-mode", t.modes || [], t.mode || (t.modes || [])[0] || "");
+    // --effort is claude-only: hide + clear the field for codex.
+    const effCol = $("#f-effort").closest(".field-col");
+    if (effCol) effCol.style.display = t.id === "codex" ? "none" : "";
+    if (t.id === "codex") $("#f-effort").value = "";
     $("#win-lead").textContent = t.id === "codex" ? "Codex 5-hour window" : "Claude 5-hour window";
     $("#btn-win-refresh").title = `Re-check your current ${t.label || t.id} usage window`;
   }
@@ -315,7 +320,7 @@
     state.target = j.target_mode || "continue"; state.session = j.session_id || ""; state.dir = j.dir || "";
     $(`input[name=target][value=${state.target}]`).checked = true;
     $("#f-session").value = state.session; $("#f-dir").value = state.dir;
-    $("#f-model").value = j.model; $("#f-mode").value = j.mode; $("#f-term").value = j.terminal;
+    $("#f-model").value = j.model; $("#f-mode").value = j.mode; $("#f-effort").value = j.effort || ""; $("#f-term").value = j.terminal;
     $("#f-name").value = j.name; $("#f-prompt").value = j.prompt || ""; $("#f-extra").value = j.extra_args || "";
     $("#f-net").checked = j.require_network !== false; $("#f-keep").checked = j.delete_after_run === false;
     const s = j.schedule || {};
@@ -341,7 +346,7 @@
       date: $("#f-date").value,
       time: $("#f-time").value.trim(),
       days: $$("#days-row .day-btn[aria-pressed=true]").map((b) => b.dataset.day),
-      model: $("#f-model").value, mode: $("#f-mode").value, terminal: $("#f-term").value,
+      model: $("#f-model").value, mode: $("#f-mode").value, effort: $("#f-effort").value, terminal: $("#f-term").value,
       name: $("#f-name").value.trim(), prompt: $("#f-prompt").value.trim(),
       extra: $("#f-extra").value.trim(),
       net: $("#f-net").checked, keep: $("#f-keep").checked,
@@ -428,6 +433,9 @@
       const t = toolDef(o.value);
       o.textContent = t.label || o.value;
     });
+    // Effort is claude-only; fill it before applyToolFields, which hides/clears
+    // it for codex (model/mode are filled per-tool inside applyToolFields).
+    fillOptions("#f-effort", [""].concat(d.efforts || []), d.effort || "");
     applyToolFields(state.tool);
     fillOptions("#f-term", d.terminals, d.terminal);
     $("#sess-days").value = d.sessions_days;

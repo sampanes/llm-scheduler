@@ -138,6 +138,20 @@ class MakeJob(unittest.TestCase):
         self.assertEqual(j["schedule"], sched)
         self.assertIn("created_at", j)
 
+    def test_effort_stored_when_set(self):
+        sched = {"type": "daily", "time": "06:45"}
+        j = make_job("j", r"C:\repo", "continue", "", sched, "opus", "auto",
+                     "wezterm", "", "", require_network=True,
+                     delete_after_run=True, effort="high")
+        self.assertEqual(j["effort"], "high")
+
+    def test_effort_defaults_to_empty_when_omitted(self):
+        sched = {"type": "daily", "time": "06:45"}
+        j = make_job("j", r"C:\repo", "continue", "", sched, "opus", "auto",
+                     "wezterm", "", "", require_network=True,
+                     delete_after_run=True)
+        self.assertEqual(j["effort"], "")
+
 
 if __name__ == "__main__":
     unittest.main()

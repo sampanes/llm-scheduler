@@ -31,7 +31,7 @@ def job(**over):
         "dir": r"C:\Projects\work space", "name": "nightly", "id": "abc12345",
         "target": {"mode": "continue", "session_id": ""},
         "schedule": {"type": "once", "datetime": "2099-01-01T06:45"},
-        "prompt": "", "extra_args": "",
+        "prompt": "", "extra_args": "", "effort": "",
         "require_network": True, "delete_after_run": True,
     }
     base.update(over)
@@ -67,6 +67,18 @@ class BuildClaudeArgs(unittest.TestCase):
         self.assertEqual(args, [
             "--model", "opus", "--permission-mode", "auto", "--continue",
             "--fork-session", "--add-dir", r"C:\proj dir", "go on"])
+
+    def test_effort_emitted_before_target(self):
+        args = build_claude_args(job(effort="xhigh"), {})
+        self.assertEqual(args[args.index("--effort") + 1], "xhigh")
+        # --effort sits ahead of the --continue / --resume target flag
+        self.assertLess(args.index("--effort"), args.index("--continue"))
+
+    def test_effort_omitted_when_blank_or_absent(self):
+        self.assertNotIn("--effort", build_claude_args(job(effort=""), {}))
+        no_key = job()
+        no_key.pop("effort")  # a job dict from before this field existed
+        self.assertNotIn("--effort", build_claude_args(no_key, {}))
 
 
 class BuildCodexArgs(unittest.TestCase):

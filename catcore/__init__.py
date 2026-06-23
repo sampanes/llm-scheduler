@@ -18,7 +18,8 @@ from .config import (
     TOOL_DIR, JOBS_FILE, SETTINGS_FILE, PROJECTS_DIR, CODEX_SESSIONS_DIR,
     TASK_FOLDER, UUID_RE, DAY_NAMES, DAY_ORDER, PERMISSION_MODES,
     CODEX_APPROVAL_MODES, MODELS, CODEX_MODELS, TERMINALS, TOOLS,
-    DEFAULT_SETTINGS, load_settings, save_settings, load_jobs, save_jobs,
+    EFFORT_LEVELS, DEFAULT_SETTINGS, load_settings, save_settings,
+    load_jobs, save_jobs,
 )
 from .paths import resolve_claude, resolve_codex, resolve_terminal, default_terminal
 from .sessions import scan_sessions, open_session_ids
@@ -44,7 +45,7 @@ __all__ = [
     "TOOL_DIR", "JOBS_FILE", "SETTINGS_FILE", "PROJECTS_DIR",
     "CODEX_SESSIONS_DIR", "TASK_FOLDER", "UUID_RE", "DAY_NAMES",
     "DAY_ORDER", "PERMISSION_MODES", "CODEX_APPROVAL_MODES", "MODELS",
-    "CODEX_MODELS", "TERMINALS", "TOOLS", "DEFAULT_SETTINGS",
+    "CODEX_MODELS", "TERMINALS", "TOOLS", "EFFORT_LEVELS", "DEFAULT_SETTINGS",
     "load_settings", "save_settings", "load_jobs", "save_jobs",
     "resolve_claude", "resolve_codex", "resolve_terminal", "default_terminal",
     "scan_sessions", "open_session_ids", "sanitize_name", "task_name_for",

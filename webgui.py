@@ -39,7 +39,7 @@ from catcore import (
     register_job, delete_job, task_run, task_query_all, prune_jobs,
     default_terminal, window_slots as _window_slots,
     MODELS, CODEX_MODELS, PERMISSION_MODES, CODEX_APPROVAL_MODES,
-    TERMINALS, DAY_ORDER, UUID_RE,
+    TERMINALS, EFFORT_LEVELS, DAY_ORDER, UUID_RE,
 )
 
 WEBUI_DIR = Path(__file__).resolve().parent / "webui"
@@ -353,8 +353,9 @@ class Api:
             ],
             "tool": s.get("tool", "claude"),
             "models": MODELS, "modes": PERMISSION_MODES, "terminals": TERMINALS,
-            "days": DAY_ORDER,
+            "efforts": EFFORT_LEVELS, "days": DAY_ORDER,
             "model": s["model"], "mode": s["permission_mode"],
+            "effort": s.get("effort", ""),
             "terminal": s["terminal"] or default_terminal(s),
             "default_dir": s.get("default_dir") or str(Path.home()),
             "sessions_days": s.get("sessions_days", 14),
@@ -403,6 +404,7 @@ class Api:
                 "schedule_disp": describe_schedule(j),
                 "target_disp": describe_target(j),
                 "model": j["model"], "mode": j["permission_mode"],
+                "effort": j.get("effort", ""),
                 "terminal": j["terminal"],
                 "status": q["status"] if q else "MISSING",
                 # for Load-into-form:
@@ -488,6 +490,9 @@ class Api:
             f.get("prompt") or "", f.get("extra") or "",
             bool(f.get("net", True)), not bool(f.get("keep", False)),
             tool=tool,
+            # effort is claude-only (--effort); codex jobs store "" and never emit it
+            effort=((f.get("effort") or self.settings.get("effort", ""))
+                    if tool == "claude" else ""),
         )
 
     # ---- writes ----

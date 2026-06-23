@@ -100,5 +100,15 @@ class SaveLoadRoundTrip(unittest.TestCase):
         self.assertEqual(s["model"], config.DEFAULT_SETTINGS["model"])
 
 
+class EffortConstants(unittest.TestCase):
+    def test_effort_levels(self):
+        self.assertEqual(config.EFFORT_LEVELS,
+                         ["low", "medium", "high", "xhigh", "max"])
+
+    def test_effort_default_is_inherit(self):
+        # "" => emit no --effort flag => claude inherits its own effortLevel
+        self.assertEqual(config.DEFAULT_SETTINGS["effort"], "")
+
+
 if __name__ == "__main__":
     unittest.main()

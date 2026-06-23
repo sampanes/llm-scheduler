@@ -23,6 +23,8 @@ from .jobmodel import describe_target
 def build_claude_args(job, settings):
     """Argument vector for claude.exe (excluding the exe itself)."""
     args = ["--model", job["model"], "--permission-mode", job["permission_mode"]]
+    if job.get("effort"):  # "" / absent -> omit, so claude inherits its own level
+        args += ["--effort", job["effort"]]
     target = job["target"]
     if target["mode"] == "resume":
         args += ["--resume", target["session_id"]]
