@@ -12,7 +12,7 @@ from subprocess import list2cmdline
 from catcore import (
     scan_sessions, load_jobs, find_job, make_job, build_task_xml, build_action,
     register_job, delete_job, task_run, prune_jobs, task_query_all, next_fire,
-    describe_target, describe_schedule, sanitize_name, task_name_for,
+    job_status, describe_target, describe_schedule, sanitize_name, task_name_for,
     UUID_RE, PERMISSION_MODES, CODEX_APPROVAL_MODES, MODELS, CODEX_MODELS,
     TERMINALS, EFFORT_LEVELS, DAY_ORDER, default_terminal,
 )
@@ -503,7 +503,7 @@ def run_gui(settings, smoke=False):
         for j in jobs:
             nf = next_fire(j)
             q = qall.get(j.get("task_name", task_name_for(j)))
-            tstat = q["status"] if q else "MISSING"
+            tstat = job_status(j, q)
             pend_tree.insert("", "end", iid=j["id"], values=(
                 "✕", f"{nf:%Y-%m-%d %H:%M}" if nf else "expired",
                 f"{j['name']}-{j['id']}", j.get("tool", "claude"),

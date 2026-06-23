@@ -155,6 +155,16 @@
     return `${d.getFullYear()}-${_p2(d.getMonth() + 1)}-${_p2(d.getDate())}`; }
   function mdy(s) { const [y, m, d] = s.split("-"); return `${m}/${d}/${y.slice(2)}`; }  // -> 06/18/26
   function md(s) { const [, m, d] = s.split("-"); return `${m}/${d}`; }                  // -> 06/18
+  // chip colour for a job's task status (labels come from the backend job_status):
+  // a fired one-shot is green ("Ran"/"Ran (kept)"), a failed one red, a running
+  // job the brand accent, everything else (Ready/MISSING) neutral.
+  function statusClass(s) {
+    s = s || "";
+    if (s.indexOf("Ran") === 0) return "chip-done";
+    if (s.indexOf("Failed") === 0) return "chip-err";
+    if (s === "Running") return "chip-accent";
+    return "";
+  }
 
   // ---- form state ----
   const state = { tool: "claude", target: "continue", session: "", sessionTitle: "", dir: "", sessions: [], tools: [] };
@@ -281,7 +291,7 @@
               <span class="chip">${esc(j.model)}</span>
               <span class="chip">${esc(j.mode)}</span>
               <span class="chip">${esc(j.terminal)}</span>
-              <span class="chip ${j.status === "Running" ? "chip-accent" : ""}">${esc(j.status)}</span>
+              <span class="chip ${statusClass(j.status)}">${esc(j.status)}</span>
             </div>
           </div>
           <div class="job-actions">

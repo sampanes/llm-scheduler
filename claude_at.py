@@ -44,7 +44,8 @@ from catcore import (
     TOOL_DIR, PROJECTS_DIR, JOBS_FILE, PERMISSION_MODES, CODEX_APPROVAL_MODES,
     TERMINALS, EFFORT_LEVELS, DAY_NAMES, TOOLS,
     load_settings, load_jobs, scan_sessions, make_job, find_job, next_fire,
-    describe_target, describe_schedule, task_name_for, resolve_claude, resolve_codex,
+    job_status, describe_target, describe_schedule, task_name_for,
+    resolve_claude, resolve_codex,
     resolve_terminal, default_terminal, build_action, build_task_xml,
     register_job, delete_job, task_run, task_query_all, prune_jobs,
 )
@@ -145,7 +146,7 @@ def cmd_list(args, settings):
     for j in rows:
         nf = next_fire(j)
         q = qall.get(j.get("task_name", task_name_for(j)))
-        status = q["status"] if q else "MISSING"
+        status = job_status(j, q)
         when = f"{nf:%Y-%m-%d %H:%M}" if nf else "expired"
         print(f"{when}  [{status:<8}] {j['name']}-{j['id']}  "
               f"{describe_schedule(j)}  {describe_target(j)}  "

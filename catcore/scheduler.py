@@ -16,7 +16,9 @@ import tempfile
 from datetime import datetime
 
 from .config import TASK_FOLDER, load_jobs, save_jobs
-from .jobmodel import task_name_for, describe_schedule, next_fire
+from .jobmodel import (
+    task_name_for, describe_schedule, next_fire, once_run_info,
+)
 from .taskxml import build_task_xml
 
 
@@ -49,16 +51,32 @@ def task_run(task_name):
 
 
 def task_query_all():
-    """One schtasks call -> {task_name: {status, next_run}} for \\ClaudeAt\\*."""
-    r = schtasks("/Query", "/FO", "CSV", "/NH")
+    """One schtasks call -> {task_name: {status, next_run, last_run, last_result}}
+    for \\ClaudeAt\\*.
+
+    Uses VERBOSE CSV so a fired one-shot (real Last Run Time + Last Result) is
+    distinguishable from one merely sitting 'Ready' — see jobmodel.once_run_info.
+    Verbose column order is stable (0 HostName, 1 TaskName, 2 Next Run Time,
+    3 Status, 4 Logon Mode, 5 Last Run Time, 6 Last Result), but rather than
+    hardcode index 1 we locate TaskName by its \\ClaudeAt\\ prefix and read the
+    rest by fixed offset, so a leading-column shift can't silently misalign us.
+    A short/garbled row is skipped (the job then reads as 'not fired' and falls
+    back to the clock-based behaviour — never a false 'finished')."""
+    r = schtasks("/Query", "/FO", "CSV", "/NH", "/V")
     out = {}
     if r.returncode != 0:
         return out
     import csv as _csv
     import io as _io
     for row in _csv.reader(_io.StringIO(r.stdout)):
-        if len(row) >= 3 and row[0].startswith(f"\\{TASK_FOLDER}\\"):
-            out[row[0].lstrip("\\")] = {"next_run": row[1], "status": row[2]}
+        idx = next((i for i, c in enumerate(row)
+                    if c.startswith(f"\\{TASK_FOLDER}\\")), None)
+        if idx is None or len(row) < idx + 6:
+            continue
+        out[row[idx].lstrip("\\")] = {
+            "next_run": row[idx + 1], "status": row[idx + 2],
+            "last_run": row[idx + 4], "last_result": row[idx + 5],
+        }
     return out
 
 
@@ -100,20 +118,41 @@ def delete_job(job):
 
 
 def prune_jobs(verbose=True):
-    """Drop jobs whose task no longer exists (fired one-shots, manual deletes)."""
+    """Drop jobs that are finished, and clean up any task we're forgetting.
+
+    A job is finished when ANY of:
+      * its Task Scheduler task is gone (q is None) — manual delete / auto-clean;
+      * it's a one-shot that has already FIRED (Last Run Time at/after its
+        scheduled time) and is NOT a keep-the-task job — the authoritative
+        signal, independent of the catch-up window or whether Windows has gotten
+        around to auto-deleting the expired task;
+      * it's a one-shot now past its catch-up window that never ran (next_fire
+        is None) — abandoned.
+    Fired keep-jobs (delete_after_run=False) are RETAINED so their record/label
+    ('Ran ✓ (kept)') stays for inspection. Whenever we drop a record whose
+    Windows task still lingers, we delete that task too, so a forgotten job never
+    leaves an orphan task behind."""
     jobs = load_jobs()
-    keep, dropped = [], []
+    keep, dropped, orphans = [], [], []
     qall = task_query_all()
     for j in jobs:
-        q = qall.get(j.get("task_name", task_name_for(j)))
-        overdue = (j["schedule"]["type"] == "once"
-                   and next_fire(j) is None)
-        if q is None or overdue:
+        tn = j.get("task_name", task_name_for(j))
+        q = qall.get(tn)
+        once = j["schedule"]["type"] == "once"
+        fired = once and once_run_info(j, q) is not None
+        overdue = once and next_fire(j) is None
+        finished = (q is None) or overdue or (
+            fired and j.get("delete_after_run", True))
+        if finished:
             dropped.append(j)
+            if q is not None:           # task still around -> clean the orphan
+                orphans.append(tn)
         else:
             keep.append(j)
     if dropped:
         save_jobs(keep)
+    for tn in orphans:
+        task_delete(tn)                 # best-effort; ignore "already gone"
     if verbose:
         for j in dropped:
             print(f"pruned: {j['name']}-{j['id']} ({describe_schedule(j)})")

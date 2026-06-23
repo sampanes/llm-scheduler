@@ -36,7 +36,7 @@ from pathlib import Path
 from catcore import (
     scan_sessions, load_jobs, find_job, make_job, next_fire, describe_target,
     describe_schedule, task_name_for, build_action, build_task_xml,
-    register_job, delete_job, task_run, task_query_all, prune_jobs,
+    register_job, delete_job, task_run, task_query_all, prune_jobs, job_status,
     default_terminal, window_slots as _window_slots,
     MODELS, CODEX_MODELS, PERMISSION_MODES, CODEX_APPROVAL_MODES,
     TERMINALS, EFFORT_LEVELS, DAY_ORDER, UUID_RE,
@@ -440,7 +440,7 @@ class Api:
                 "model": j["model"], "mode": j["permission_mode"],
                 "effort": j.get("effort", ""),
                 "terminal": j["terminal"],
-                "status": q["status"] if q else "MISSING",
+                "status": job_status(j, q),
                 # for Load-into-form:
                 "target_mode": j["target"]["mode"],
                 "session_id": j["target"].get("session_id", ""),

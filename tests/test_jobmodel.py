@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from catcore.config import TASK_FOLDER, DAY_ORDER, DEFAULT_SETTINGS
 from catcore.jobmodel import (
     sanitize_name, task_name_for, describe_target, describe_schedule,
-    next_fire, make_job, find_job,
+    next_fire, make_job, find_job, _parse_task_dt, once_run_info, job_status,
 )
 
 NOW = datetime(2026, 6, 17, 12, 0, 0)  # fixed reference instant
@@ -151,6 +151,99 @@ class MakeJob(unittest.TestCase):
                      "wezterm", "", "", require_network=True,
                      delete_after_run=True)
         self.assertEqual(j["effort"], "")
+
+
+SCHED = "2026-06-22T20:01"  # a one-shot's scheduled datetime
+
+
+def once_with_q(last_run, last_result="0", delete_after_run=True, status="Ready"):
+    job = {"schedule": {"type": "once", "datetime": SCHED},
+           "delete_after_run": delete_after_run}
+    q = {"status": status, "next_run": "N/A",
+         "last_run": last_run, "last_result": last_result}
+    return job, q
+
+
+class ParseTaskDt(unittest.TestCase):
+    def test_24h_format(self):
+        self.assertEqual(_parse_task_dt("6/22/2026 20:01:00"),
+                         datetime(2026, 6, 22, 20, 1, 0))
+
+    def test_12h_ampm_format(self):
+        self.assertEqual(_parse_task_dt("6/22/2026 8:01:00 PM"),
+                         datetime(2026, 6, 22, 20, 1, 0))
+
+    def test_never_run_sentinels_are_none(self):
+        self.assertIsNone(_parse_task_dt("N/A"))
+        self.assertIsNone(_parse_task_dt(""))
+        self.assertIsNone(_parse_task_dt("11/30/1999 12:00:00 AM"))  # pre-2000
+
+    def test_garbage_is_none(self):
+        self.assertIsNone(_parse_task_dt("whenever"))
+
+
+class OnceRunInfo(unittest.TestCase):
+    def test_fired_success(self):
+        job, q = once_with_q("6/22/2026 20:01:00", "0")
+        info = once_run_info(job, q)
+        self.assertIsNotNone(info)
+        self.assertTrue(info["ok"])
+        self.assertEqual(info["last_run"], datetime(2026, 6, 22, 20, 1, 0))
+
+    def test_fired_failure_is_still_fired(self):
+        job, q = once_with_q("6/22/2026 20:05:00", "1")
+        info = once_run_info(job, q)
+        self.assertIsNotNone(info)
+        self.assertFalse(info["ok"])
+
+    def test_never_ran_is_none(self):
+        job, q = once_with_q("N/A")
+        self.assertIsNone(once_run_info(job, q))
+
+    def test_run_before_schedule_ignored(self):
+        # a Last Run Time from an earlier task is not THIS one-shot's firing
+        job, q = once_with_q("6/20/2026 09:00:00", "0")
+        self.assertIsNone(once_run_info(job, q))
+
+    def test_not_once_is_none(self):
+        job = {"schedule": {"type": "daily", "time": "06:45"}}
+        q = {"last_run": "6/22/2026 06:45:00", "last_result": "0"}
+        self.assertIsNone(once_run_info(job, q))
+
+    def test_no_task_info_is_none(self):
+        job, _ = once_with_q("6/22/2026 20:01:00")
+        self.assertIsNone(once_run_info(job, None))
+
+
+class JobStatus(unittest.TestCase):
+    def test_missing_when_no_task(self):
+        job, _ = once_with_q("N/A")
+        self.assertEqual(job_status(job, None), "MISSING")
+
+    def test_fired_delete_after_run(self):
+        job, q = once_with_q("6/22/2026 20:01:00", "0", delete_after_run=True)
+        self.assertEqual(job_status(job, q), "Ran")
+
+    def test_fired_kept(self):
+        job, q = once_with_q("6/22/2026 20:01:00", "0", delete_after_run=False)
+        self.assertEqual(job_status(job, q), "Ran (kept)")
+
+    def test_label_is_ascii(self):  # CLI prints these to a cp1252 console
+        job, q = once_with_q("6/22/2026 20:01:00", "0")
+        job_status(job, q).encode("cp1252")  # raises if a non-ASCII glyph sneaks in
+
+    def test_failed_shows_result_code(self):
+        job, q = once_with_q("6/22/2026 20:01:00", "2147942402")
+        self.assertEqual(job_status(job, q), "Failed (2147942402)")
+
+    def test_not_yet_run_passes_raw_status(self):
+        job, q = once_with_q("N/A", status="Ready")
+        self.assertEqual(job_status(job, q), "Ready")
+
+    def test_recurring_passes_raw_status(self):
+        job = {"schedule": {"type": "daily", "time": "06:45"}}
+        q = {"status": "Running", "last_run": "6/22/2026 06:45:00", "last_result": "0"}
+        self.assertEqual(job_status(job, q), "Running")
 
 
 if __name__ == "__main__":

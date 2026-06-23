@@ -92,3 +92,81 @@ def find_job(jobs, key):
         if j["id"] == key or j["name"] == key or task_name_for(j) == key:
             return j
     return None
+
+
+# --------------------------------------------------------------------------
+# Task Scheduler run-state — authoritative for whether a one-shot has fired.
+#
+# next_fire() above is pure clock math: it cannot know whether a one-shot has
+# already run, so a successfully-fired job stays "pending <past time>" for the
+# whole missed-run catch-up window and resists pruning. Task Scheduler DOES know
+# (Last Run Time / Last Result), so completion is read from there instead of
+# re-derived from the clock. These helpers are still pure — they take an
+# already-fetched task_query_all() entry; the schtasks call lives in scheduler.
+# --------------------------------------------------------------------------
+
+_NEVER_RUN = ("", "n/a", "never")  # schtasks Last Run Time sentinels
+
+
+def _parse_task_dt(s):
+    """Parse a schtasks Last/Next Run Time string to a datetime, else None.
+
+    schtasks prints locale-formatted timestamps ('6/22/2026 20:01:00' or
+    '6/22/2026 8:01:00 PM'); the never-run sentinel is 'N/A' or the historic
+    '11/30/1999 12:00:00 AM'. Unparseable or pre-2000 -> None (treated as
+    'never ran'), so we never mistake the sentinel for a real firing."""
+    s = (s or "").strip()
+    if s.lower() in _NEVER_RUN:
+        return None
+    for fmt in ("%m/%d/%Y %I:%M:%S %p", "%m/%d/%Y %H:%M:%S",
+                "%m/%d/%Y %H:%M", "%Y-%m-%d %H:%M:%S"):
+        try:
+            dt = datetime.strptime(s, fmt)
+            return dt if dt.year >= 2000 else None
+        except ValueError:
+            continue
+    return None
+
+
+def once_run_info(job, q):
+    """Task Scheduler's run-state for a one-shot, or None if it hasn't run / is
+    not a one-shot / has no task info.
+
+    `q` is a task_query_all() entry ({status, next_run, last_run, last_result}).
+    Returns {"last_run": datetime, "last_result": str, "ok": bool} when the task
+    has a Last Run Time at/after the scheduled time (i.e. THIS one-shot fired);
+    `ok` is True only on a zero (success) result. A run stamped before the
+    schedule belongs to an earlier task and is ignored."""
+    if not q or job.get("schedule", {}).get("type") != "once":
+        return None
+    lr = _parse_task_dt(q.get("last_run", ""))
+    if lr is None:
+        return None
+    try:
+        sched = datetime.fromisoformat(job["schedule"]["datetime"])
+    except (KeyError, ValueError):
+        return None
+    if lr + timedelta(minutes=1) < sched:
+        return None
+    res = str(q.get("last_result", "")).strip()
+    return {"last_run": lr, "last_result": res, "ok": res in ("0", "0x0")}
+
+
+def job_status(job, q):
+    """Display label for a job's task status, authoritative for fired one-shots.
+
+    A one-shot Task Scheduler reports as run shows 'Ran' (or 'Ran (kept)' when
+    delete_after_run is off, or 'Failed (N)' on a non-zero result) rather than
+    the misleading raw 'Ready' beside a past 'next run'. Anything else passes the
+    raw schtasks status through (Ready/Running/…); a gone task is 'MISSING'.
+
+    Kept ASCII-only on purpose: this label is printed by the CLI to a Windows
+    console (cp1252), where a non-ASCII glyph would raise UnicodeEncodeError."""
+    if q is None:
+        return "MISSING"
+    info = once_run_info(job, q)
+    if info:
+        if not info["ok"]:
+            return f"Failed ({info['last_result'] or '?'})"
+        return "Ran (kept)" if not job.get("delete_after_run", True) else "Ran"
+    return q.get("status", "?")

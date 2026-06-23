@@ -145,6 +145,9 @@ a { color: var(--brand-accent); }
   font-size: .72rem; font-weight: 700; color: var(--fg-muted);
 }
 .chip-accent { color: var(--brand-accent); border-color: var(--brand-accent); background: transparent; }
+/* terminal one-shot states (set by job_status): ran ok / ran but failed */
+.chip-done { color: #2f8a52; border-color: #2f8a52; background: transparent; }
+.chip-err { color: #c23b3b; border-color: #c23b3b; background: transparent; }
 .chip-live { color: #fff; background: var(--brand-accent); border-color: var(--brand-accent); }
 .chip-live .dot { width: 6px; height: 6px; border-radius: 50%; background: #fff; animation: pulse 1.6s var(--ease) infinite; }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }

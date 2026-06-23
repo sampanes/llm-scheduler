@@ -25,7 +25,7 @@ from .paths import resolve_claude, resolve_codex, resolve_terminal, default_term
 from .sessions import scan_sessions, open_session_ids
 from .jobmodel import (
     sanitize_name, task_name_for, describe_target, describe_schedule,
-    next_fire, make_job, find_job,
+    next_fire, make_job, find_job, once_run_info, job_status,
 )
 from .taskxml import (
     build_claude_args, build_codex_args, build_tool_args, build_action,
@@ -50,7 +50,8 @@ __all__ = [
     "resolve_claude", "resolve_codex", "resolve_terminal", "default_terminal",
     "scan_sessions", "open_session_ids", "sanitize_name", "task_name_for",
     "describe_target", "describe_schedule", "next_fire", "make_job",
-    "find_job", "build_claude_args", "build_codex_args", "build_tool_args",
+    "find_job", "once_run_info", "job_status",
+    "build_claude_args", "build_codex_args", "build_tool_args",
     "build_action", "build_trigger_xml", "build_task_xml", "schtasks",
     "task_create", "task_delete", "task_run", "task_query_all", "task_query",
     "register_job", "delete_job", "prune_jobs", "window_slots",
