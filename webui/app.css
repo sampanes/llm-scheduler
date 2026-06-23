@@ -107,6 +107,13 @@ a { color: var(--brand-accent); }
 *::-webkit-scrollbar-thumb { background: var(--border); border-radius: var(--radius-pill); border: 2px solid var(--bg); }
 *::-webkit-scrollbar-track { background: transparent; }
 
+/* The `hidden` attribute is only `display:none` at UA-stylesheet specificity, so
+   a component rule like `.btn`/`.origin-bar`/`.win-slots` (which set display)
+   overrides it and the element shows anyway. Make the attribute authoritative so
+   `el.hidden = true` reliably hides these (origin pill, Replace button, the
+   window chip row before it loads). */
+[hidden] { display: none !important; }
+
 /* ---------- brand components ---------- */
 .btn {
   font-family: var(--font-primary); font-weight: 700; font-size: .85rem;
