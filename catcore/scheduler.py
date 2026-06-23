@@ -111,6 +111,43 @@ def register_job(job, settings, dry_run=False):
     return xml
 
 
+def update_job(job, settings, dry_run=False):
+    """Re-register an EDITED job in place (an upsert keyed by job['id']).
+
+    Where register_job always creates a NEW job+task, this REPLACES the existing
+    jobs.json entry that shares job['id'] and overwrites its Windows task — the
+    standard CRUD "update" the GUI's Replace action wants, so editing a pending
+    run doesn't leave a duplicate behind. Specifics:
+      * created_at is carried over from the original (it's the first-created
+        time, not the edit time);
+      * task_create uses /F, so when the name is unchanged the task is simply
+        overwritten under the same name. When the name DID change, task_name_for
+        changes too, so the now-stale task under the OLD name is deleted first —
+        otherwise a rename would orphan it;
+      * if no entry with this id exists (the original was pruned/deleted out from
+        under us), the job is appended rather than lost, so an edit can never
+        silently drop the work (it degrades to a plain create)."""
+    xml = build_task_xml(job, settings)
+    tn = task_name_for(job)
+    job["task_name"] = tn
+    if dry_run:
+        return xml
+    jobs = load_jobs()
+    old = next((j for j in jobs if j["id"] == job["id"]), None)
+    if old is not None:
+        job["created_at"] = old.get("created_at", job.get("created_at"))
+        old_tn = old.get("task_name", task_name_for(old))
+        if old_tn != tn:
+            task_delete(old_tn)         # name changed -> drop the stale task
+    task_create(tn, xml)                # /F overwrites in place when tn unchanged
+    if old is None:
+        jobs.append(job)
+    else:
+        jobs = [job if j["id"] == job["id"] else j for j in jobs]
+    save_jobs(jobs)
+    return xml
+
+
 def delete_job(job):
     task_delete(job.get("task_name", task_name_for(job)))
     jobs = [j for j in load_jobs() if j["id"] != job["id"]]

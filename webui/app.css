@@ -278,6 +278,16 @@ label { font-size: .8rem; font-weight: 700; color: var(--fg-muted); }
   cursor: pointer; font-family: var(--font-primary); }
 .day-btn[aria-pressed="true"] { background: var(--brand-accent); color: #fff; border-color: var(--brand-accent); }
 .actions { display: flex; align-items: center; gap: var(--sp-2); margin-top: var(--sp-1); }
+/* "editing <job>" pill: shows only after Load (origin set); pushes the buttons
+   to the right so the Replace/Schedule pair stays where the eye expects it. */
+.origin-bar { display: flex; align-items: center; margin-right: auto; }
+.origin-chip { display: inline-flex; align-items: center; gap: 6px; font-size: .78rem;
+  color: var(--fg-muted); background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: 999px; padding: 3px 6px 3px 12px; }
+.origin-chip strong { color: var(--fg); font-weight: 700; }
+.origin-x { border: none; background: transparent; cursor: pointer; color: var(--fg-muted);
+  font-size: .8rem; line-height: 1; padding: 2px 7px; border-radius: 999px; }
+.origin-x:hover { background: var(--border); color: var(--fg); }
 
 /* 5-hour-window quick-pick chips (fill the Time/date from the live usage window).
    The Claude-coral primary chip marks the "open a fresh window now/next" pick;

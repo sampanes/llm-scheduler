@@ -11,7 +11,7 @@ from subprocess import list2cmdline
 
 from catcore import (
     scan_sessions, load_jobs, find_job, make_job, build_task_xml, build_action,
-    register_job, delete_job, task_run, prune_jobs, task_query_all, next_fire,
+    register_job, update_job, delete_job, task_run, prune_jobs, task_query_all, next_fire,
     job_status, describe_target, describe_schedule, sanitize_name, task_name_for,
     UUID_RE, PERMISSION_MODES, CODEX_APPROVAL_MODES, MODELS, CODEX_MODELS,
     TERMINALS, EFFORT_LEVELS, DAY_ORDER, default_terminal,
@@ -391,6 +391,24 @@ def run_gui(settings, smoke=False):
     ttk.Button(arow5, text="Builder…", command=open_args_builder
                ).pack(side="left", padx=4)
 
+    # "edit origin": the id of the job Load-into-form copied from. While set, the
+    # Replace button updates that job in place (vs Schedule, which makes a new
+    # one). Cleared after any successful submit. replace_btn is created below in
+    # `brow`; set_edit is only called after that, so the late name binding is OK.
+    edit_origin = {"id": None}
+    edit_var = tk.StringVar(value="")
+
+    def set_edit(job=None):
+        if job:
+            edit_origin["id"] = job["id"]
+            edit_var.set(f"editing {job['name']}-{job['id']}  "
+                         "(Replace updates it; Schedule makes a new copy)")
+            replace_btn.config(state="normal")
+        else:
+            edit_origin["id"] = None
+            edit_var.set("")
+            replace_btn.config(state="disabled")
+
     def gather_job():
         adv_on = adv_visible.get()
         mode = target_var.get()
@@ -438,6 +456,22 @@ def run_gui(settings, smoke=False):
             return
         set_status(f"scheduled {job['name']}-{job['id']} "
                    f"({describe_schedule(job)})")
+        set_edit(None)
+        refresh_pending()
+
+    def do_replace():
+        if not edit_origin["id"]:
+            return do_schedule()        # nothing loaded -> behave like Schedule
+        try:
+            job = gather_job()
+            job["id"] = edit_origin["id"]
+            update_job(job, settings)
+        except (ValueError, RuntimeError) as e:
+            messagebox.showerror("claude-at", str(e))
+            return
+        set_status(f"updated {job['name']}-{job['id']} "
+                   f"({describe_schedule(job)})")
+        set_edit(None)
         refresh_pending()
 
     def do_preview():
@@ -458,6 +492,11 @@ def run_gui(settings, smoke=False):
 
     brow = ttk.Frame(form); brow.pack(fill="x", padx=10, pady=8)
     ttk.Button(brow, text="Schedule", command=do_schedule).pack(side="left")
+    replace_btn = ttk.Button(brow, text="Replace", command=do_replace,
+                             state="disabled")
+    replace_btn.pack(side="left", padx=4)
+    ttk.Label(brow, textvariable=edit_var, foreground="gray40"
+              ).pack(side="left", padx=10)
 
     def set_advanced(show):
         adv_visible.set(show)
@@ -584,8 +623,9 @@ def run_gui(settings, smoke=False):
         session_title["text"] = ""
         set_advanced(True)
         update_target_desc()
-        set_status(f"loaded {j['name']}-{j['id']} into form "
-                   "(Schedule creates a new job; delete the old one if replacing)")
+        set_edit(j)
+        set_status(f"editing {j['name']}-{j['id']} "
+                   "(Replace updates it; Schedule makes a new copy)")
 
     def do_prune():
         dropped = prune_jobs(verbose=False)

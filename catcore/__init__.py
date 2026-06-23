@@ -33,7 +33,7 @@ from .taskxml import (
 )
 from .scheduler import (
     schtasks, task_create, task_delete, task_run, task_query_all, task_query,
-    register_job, delete_job, prune_jobs,
+    register_job, update_job, delete_job, prune_jobs,
 )
 from .window import (
     window_slots, claude_window_slots, codex_window_slots, fetch_resets_at,
@@ -54,7 +54,7 @@ __all__ = [
     "build_claude_args", "build_codex_args", "build_tool_args",
     "build_action", "build_trigger_xml", "build_task_xml", "schtasks",
     "task_create", "task_delete", "task_run", "task_query_all", "task_query",
-    "register_job", "delete_job", "prune_jobs", "window_slots",
+    "register_job", "update_job", "delete_job", "prune_jobs", "window_slots",
     "claude_window_slots", "codex_window_slots", "fetch_resets_at",
     "fetch_codex_rate_limits", "parse_codex_primary_window", "build_slots",
     "WINDOW_HOURS",

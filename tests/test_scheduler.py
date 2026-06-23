@@ -30,6 +30,68 @@ def q(status="Ready", last_run="N/A", last_result="267011"):
             "last_run": last_run, "last_result": last_result}
 
 
+def ejob(jid, name=None, created_at="2026-01-01T00:00:00"):
+    name = name or jid
+    return {"id": jid, "name": name, "task_name": f"ClaudeAt\\{name}-{jid}",
+            "schedule": {"type": "once", "datetime": "2026-12-01T20:01"},
+            "created_at": created_at}
+
+
+class UpdateJob(unittest.TestCase):
+    """update_job is an upsert keyed by id: it REPLACES the matching jobs.json
+    entry and overwrites its task (no duplicate), cleans up the old task on a
+    rename, preserves created_at, and degrades to a create if the origin is gone.
+    All schtasks side effects + XML build are mocked."""
+
+    def _run(self, existing, newjob):
+        saved = {}
+
+        def fake_save(js):
+            saved["jobs"] = js
+
+        with mock.patch.object(scheduler, "load_jobs", return_value=list(existing)), \
+             mock.patch.object(scheduler, "save_jobs", side_effect=fake_save), \
+             mock.patch.object(scheduler, "build_task_xml", return_value="<xml/>"), \
+             mock.patch.object(scheduler, "task_create") as tc, \
+             mock.patch.object(scheduler, "task_delete") as td:
+            scheduler.update_job(newjob, {})
+        return saved.get("jobs"), tc, td
+
+    def test_same_name_overwrites_in_place_no_delete(self):
+        old = ejob("a", name="job", created_at="2026-01-01T00:00:00")
+        new = {"id": "a", "name": "job", "model": "opus",
+               "schedule": {"type": "once", "datetime": "2026-12-09T09:09"},
+               "created_at": "2026-06-23T12:00:00"}
+        jobs, tc, td = self._run([old], new)
+        td.assert_not_called()                              # same task name -> /F overwrites
+        tc.assert_called_once_with("ClaudeAt\\job-a", "<xml/>")
+        self.assertEqual([j["id"] for j in jobs], ["a"])    # replaced, not appended
+        self.assertEqual(jobs[0]["model"], "opus")          # new fields applied
+        self.assertEqual(jobs[0]["created_at"], "2026-01-01T00:00:00")  # preserved
+        self.assertEqual(jobs[0]["task_name"], "ClaudeAt\\job-a")
+
+    def test_rename_deletes_stale_task(self):
+        old = ejob("a", name="old")
+        new = {"id": "a", "name": "new",
+               "schedule": {"type": "once", "datetime": "2026-12-09T09:09"},
+               "created_at": "2026-06-23T12:00:00"}
+        jobs, tc, td = self._run([old], new)
+        td.assert_called_once_with("ClaudeAt\\old-a")       # rename -> drop old task
+        tc.assert_called_once_with("ClaudeAt\\new-a", "<xml/>")
+        self.assertEqual([j["id"] for j in jobs], ["a"])
+        self.assertEqual(jobs[0]["name"], "new")
+
+    def test_missing_origin_appends_without_clobbering(self):
+        keep = ejob("b", name="keep")
+        new = {"id": "a", "name": "fresh",
+               "schedule": {"type": "once", "datetime": "2026-12-09T09:09"},
+               "created_at": "2026-06-23T12:00:00"}
+        jobs, tc, td = self._run([keep], new)
+        td.assert_not_called()
+        tc.assert_called_once_with("ClaudeAt\\fresh-a", "<xml/>")
+        self.assertEqual({j["id"] for j in jobs}, {"a", "b"})  # appended; sibling intact
+
+
 class PruneJobs(unittest.TestCase):
     def _run(self, jobs, qall):
         saved = {}

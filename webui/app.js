@@ -59,6 +59,7 @@
     // so once told the user "Scheduled!" while nothing real was created, so they
     // clicked again fearing a double-run. Mock writes now refuse, loudly.
     schedule: () => ({ error: NOT_CONNECTED }),
+    update: () => ({ error: NOT_CONNECTED }),
     delete: () => ({ error: NOT_CONNECTED }),
     run_now: () => ({ error: NOT_CONNECTED }),
     prune: () => ({ error: NOT_CONNECTED }),
@@ -167,7 +168,8 @@
   }
 
   // ---- form state ----
-  const state = { tool: "claude", target: "continue", session: "", sessionTitle: "", dir: "", sessions: [], tools: [] };
+  const state = { tool: "claude", target: "continue", session: "", sessionTitle: "", dir: "", sessions: [], tools: [],
+    origin: null, originLabel: "" };
 
   function toolDef(id = state.tool) {
     return state.tools.find((t) => t.id === id) || state.tools[0] || {
@@ -341,8 +343,27 @@
     openAdv(true); updateTargetDesc();
     refreshSessions();
     loadWindowSlots(false, true);
-    status(`loaded ${j.label} into the form (Schedule makes a new job)`);
+    state.origin = id; state.originLabel = j.label; renderOrigin();
+    status(`editing ${j.label} — Replace saves changes, Schedule makes a new copy`);
   }
+
+  // Load establishes an "origin": the job the form was copied from. While one is
+  // set, the form shows an "editing <job>" pill and a Replace button (update in
+  // place); Schedule still makes a NEW job (the copy case). Clearing the origin
+  // — the pill's ✕, the Clear button, or any successful submit — returns to the
+  // plain create-from-scratch state, so the destructive in-place edit only ever
+  // appears in the one context where it's meaningful.
+  function renderOrigin() {
+    const editing = !!state.origin;
+    $("#origin-bar").hidden = !editing;
+    $("#btn-replace").hidden = !editing;
+    if (editing) $("#origin-name").textContent = state.originLabel || state.origin;
+    const sch = $("#btn-schedule");
+    sch.textContent = editing ? "Schedule as new" : "Schedule";
+    sch.classList.toggle("btn-primary", !editing);
+    sch.classList.toggle("btn-secondary", editing);
+  }
+  function clearOrigin() { state.origin = null; state.originLabel = ""; renderOrigin(); }
 
   // ---- gather + schedule/preview ----
   function gatherForm() {
@@ -364,8 +385,14 @@
   }
   async function doSchedule() {
     const r = await call("schedule", gatherForm());
-    if (r && r.ok) { toast(`Scheduled: ${r.name} (${r.desc})`); status(`scheduled ${r.name}-${r.id}`); refreshPending(); }
+    if (r && r.ok) { toast(`Scheduled: ${r.name} (${r.desc})`); status(`scheduled ${r.name}-${r.id}`); clearOrigin(); refreshPending(); }
     else toast((r && r.error) || "could not schedule", true);
+  }
+  async function doReplace() {
+    if (!state.origin) return doSchedule();   // nothing loaded -> behave like Schedule
+    const r = await call("update", state.origin, gatherForm());
+    if (r && r.ok) { toast(`Updated: ${r.name} (${r.desc})`); status(`updated ${r.name}`); clearOrigin(); refreshPending(); }
+    else toast((r && r.error) || "could not update", true);
   }
   async function doPreview() {
     const r = await call("preview", gatherForm());
@@ -473,7 +500,7 @@
     $("#btn-refresh").onclick = refreshSessions;
     $("#btn-pend-refresh").onclick = refreshPending;
     $("#btn-clear").onclick = () => { state.target = "continue"; state.session = ""; state.sessionTitle = ""; state.dir = d.default_dir;
-      $("#f-session").value = ""; $("#f-dir").value = d.default_dir; $(`input[name=target][value=continue]`).checked = true; renderSessions(); updateTargetDesc(); };
+      $("#f-session").value = ""; $("#f-dir").value = d.default_dir; $(`input[name=target][value=continue]`).checked = true; clearOrigin(); renderSessions(); updateTargetDesc(); };
     $("#adv-toggle").onclick = () => openAdv(!$("#adv").classList.contains("open"));
     $$('input[name=target]').forEach((r) => r.onchange = () => { state.target = r.value; if (r.value !== "resume") { state.session = ""; $("#f-session").value = ""; } updateTargetDesc(); });
     $("#f-dir").addEventListener("input", () => { state.dir = $("#f-dir").value; updateTargetDesc(); });
@@ -493,6 +520,8 @@
       toast("Added latest screenshot: " + (r.name || r.path));
     };
     $("#btn-schedule").onclick = doSchedule;
+    $("#btn-replace").onclick = doReplace;
+    $("#origin-clear").onclick = clearOrigin;
     $("#btn-preview").onclick = doPreview;
     $("#btn-win-refresh").onclick = () => loadWindowSlots(false, true);
     $("#btn-prune").onclick = async () => { const r = await call("prune"); if (r && r.error) { toast(r.error, true); return; } toast(`Pruned ${r ? r.count : 0} job(s).`); refreshPending(); };

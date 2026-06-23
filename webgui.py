@@ -36,7 +36,8 @@ from pathlib import Path
 from catcore import (
     scan_sessions, load_jobs, find_job, make_job, next_fire, describe_target,
     describe_schedule, task_name_for, build_action, build_task_xml,
-    register_job, delete_job, task_run, task_query_all, prune_jobs, job_status,
+    register_job, update_job, delete_job, task_run, task_query_all, prune_jobs,
+    job_status,
     default_terminal, window_slots as _window_slots,
     MODELS, CODEX_MODELS, PERMISSION_MODES, CODEX_APPROVAL_MODES,
     TERMINALS, EFFORT_LEVELS, DAY_ORDER, UUID_RE,
@@ -546,6 +547,24 @@ class Api:
         try:
             job = self._job_from_form(f)
             register_job(job, self.settings)
+            self._invalidate()
+            return {"ok": True, "name": f"{job['name']}-{job['id']}",
+                    "id": job["id"], "desc": describe_schedule(job)}
+        except (ValueError, RuntimeError) as e:
+            return {"error": str(e)}
+
+    def update(self, job_id, f):
+        """Edit a pending job in place: rebuild it from the form but keep the
+        original id, so its jobs.json entry and Windows task are REPLACED rather
+        than duplicated (the Replace action). If the original is gone (deleted /
+        pruned in another view since it was loaded), degrade to a plain create so
+        the user's edits aren't lost."""
+        try:
+            if not find_job(load_jobs(), job_id):
+                return self.schedule(f)
+            job = self._job_from_form(f)
+            job["id"] = job_id
+            update_job(job, self.settings)
             self._invalidate()
             return {"ok": True, "name": f"{job['name']}-{job['id']}",
                     "id": job["id"], "desc": describe_schedule(job)}

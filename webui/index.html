@@ -155,6 +155,13 @@
         </div>
 
         <div class="actions">
+          <div class="origin-bar" id="origin-bar" hidden>
+            <span class="origin-chip">editing <strong id="origin-name"></strong>
+              <button type="button" class="origin-x" id="origin-clear"
+                title="Stop editing — Schedule will create a new job instead">&#10005;</button>
+            </span>
+          </div>
+          <button class="btn btn-primary" id="btn-replace" hidden>Replace</button>
           <button class="btn btn-primary" id="btn-schedule">Schedule</button>
           <button class="btn btn-secondary" id="btn-preview">Preview command + XML</button>
         </div>
