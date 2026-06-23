@@ -9,6 +9,7 @@ guarantee in. They don't import pywebview (webgui imports `webview` lazily,
 inside run_gui), so they run headless.
 """
 
+import inspect
 import tempfile
 import unittest
 from pathlib import Path
@@ -62,6 +63,44 @@ class LoadableAppFile(unittest.TestCase):
             with mock.patch.object(webgui, "WEBUI_DIR", Path(d)):
                 got = webgui._loadable_app_file("<html>X</html>")
             self.assertTrue(got.resolve().as_uri().startswith("file://"))
+
+
+class ApiBridgeWalkSafety(unittest.TestCase):
+    """pywebview's inject_pywebview walks dir(js_api) to discover exposed
+    methods (util.py get_functions) and RECURSES into every non-underscore,
+    non-callable attribute that has a __module__. A public attribute holding the
+    native window (a WinForms Form) sends it down .native.AccessibilityObject.
+    Bounds.Empty.Empty… — an infinite pythonnet Rectangle chain — until
+    RecursionError escapes mid-inject, so `loaded` never fires and the bridge
+    never attaches (the boot veil hangs forever, reliably under pythonw). This
+    locks in that NO public Api attribute can trigger that recursion."""
+
+    def _recursable(self, attr):
+        # Mirrors pywebview util.get_functions' recurse predicate exactly:
+        # non-callable objects that are a class or expose __module__.
+        if callable(attr):
+            return False
+        return inspect.isclass(attr) or hasattr(attr, "__module__")
+
+    def test_no_public_attr_makes_pywebview_recurse(self):
+        api = webgui.Api({"model": "opus", "permission_mode": "auto",
+                          "terminal": "", "effort": ""})
+        # Stand in for the real native window: any object with __module__ is what
+        # pywebview would recurse into. (The real one's graph is infinite.)
+        api._window = object()
+        offenders = [
+            name for name in dir(api)
+            if not name.startswith("_") and self._recursable(getattr(api, name))
+        ]
+        self.assertEqual(
+            offenders, [],
+            f"public Api attribute(s) {offenders} would make pywebview recurse "
+            f"into their native object graph and hang the bridge; prefix with '_'")
+
+    def test_window_handle_is_underscored(self):
+        api = webgui.Api({})
+        self.assertTrue(hasattr(api, "_window"))
+        self.assertFalse(hasattr(api, "window"))
 
 
 if __name__ == "__main__":

@@ -316,7 +316,16 @@ def _screenshots_dir():
 class Api:
     def __init__(self, settings):
         self.settings = settings
-        self.window = None
+        # MUST stay underscore-prefixed. pywebview's inject_pywebview walks
+        # dir(js_api) to discover exposed methods and RECURSES into every
+        # non-underscore attribute that has a __module__ (util.py get_functions).
+        # A bare `window` holds the native WinForms Form, whose
+        # .native.AccessibilityObject.Bounds.Empty.Empty… is an infinite
+        # pythonnet Rectangle chain -> RecursionError mid-inject -> the loaded
+        # event never fires and the js_api bridge never attaches, hanging the UI
+        # on the boot veil forever (worst under pythonw, where the cold-start
+        # race reliably loses). The leading underscore makes the walker skip it.
+        self._window = None
         self._calls = []  # records method names JS invokes (bridge diagnostics)
         # Prewarmed boot data (see _prewarm + run_gui): the cold, I/O-heavy first
         # session scan and the slow schtasks query run on a background thread
@@ -571,10 +580,10 @@ class Api:
         return {"ok": True, "count": count}
 
     def browse(self, initial=""):
-        if not self.window:
+        if not self._window:
             return {"path": None}
         import webview
-        res = self.window.create_file_dialog(
+        res = self._window.create_file_dialog(
             webview.FOLDER_DIALOG, directory=initial or str(Path.home()))
         if res:
             p = res[0] if isinstance(res, (list, tuple)) else res
@@ -586,11 +595,11 @@ class Api:
         # the kick-off prompt (e.g. to point the session at a screenshot). Opens
         # in `initial` (the form's working dir) when given, else home; the OS
         # dialog then remembers wherever the user last navigated.
-        if not self.window:
+        if not self._window:
             return {"path": None}
         import webview
         start = initial if initial and Path(initial).is_dir() else str(Path.home())
-        res = self.window.create_file_dialog(
+        res = self._window.create_file_dialog(
             webview.OPEN_DIALOG, directory=start, allow_multiple=False)
         if res:
             p = res[0] if isinstance(res, (list, tuple)) else res
@@ -658,7 +667,7 @@ def run_gui(settings, smoke=False):
             "claude-at: could not write a file:// HTML build; the js_api bridge "
             "will not attach and the UI will hang on the boot veil")
         window = webview.create_window("claude-at", html=html, **common)
-    api.window = window
+    api._window = window  # internal; underscore keeps pywebview's walker out (see __init__)
 
     # Warm the heavy boot data (session scan + schtasks query) on a background
     # thread NOW, so it overlaps WebView2's cold start instead of running inside
