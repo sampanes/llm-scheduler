@@ -284,10 +284,12 @@ label { font-size: .8rem; font-weight: 700; color: var(--fg-muted); }
   background: transparent; color: var(--fg-muted); font-weight: 700; font-size: .72rem;
   cursor: pointer; font-family: var(--font-primary); }
 .day-btn[aria-pressed="true"] { background: var(--brand-accent); color: #fff; border-color: var(--brand-accent); }
-.actions { display: flex; align-items: center; gap: var(--sp-2); margin-top: var(--sp-1); }
-/* "editing <job>" pill: shows only after Load (origin set); pushes the buttons
-   to the right so the Replace/Schedule pair stays where the eye expects it. */
-.origin-bar { display: flex; align-items: center; margin-right: auto; }
+.actions { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-2); margin-top: var(--sp-1); }
+/* "editing <job>" pill: shows only after Load (origin set). It takes its own
+   full-width row above the buttons (flex-basis:100% + the parent's wrap) so
+   showing it shifts the Replace/Schedule pair DOWN, not sideways — the buttons
+   keep their left-anchored position. */
+.origin-bar { display: flex; align-items: center; flex-basis: 100%; }
 .origin-chip { display: inline-flex; align-items: center; gap: 6px; font-size: .78rem;
   color: var(--fg-muted); background: var(--surface-2); border: 1px solid var(--border);
   border-radius: 999px; padding: 3px 6px 3px 12px; }
