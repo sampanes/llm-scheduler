@@ -246,6 +246,31 @@ def compose_html(write_preview=True):
     return html
 
 
+def _loadable_app_file(html):
+    """Return a path holding exactly `html`, loadable over file:// — which the
+    js_api bridge REQUIRES (loading via html=/NavigateToString yields a null
+    origin and the bridge never attaches, hanging the UI on the boot veil).
+
+    Prefer the canonical webui/_app.html that compose_html best-effort wrote;
+    trust it only if its content is current (a prior instance / OneDrive / AV
+    scan can hold a write lock, leaving it stale or missing). Otherwise write a
+    temp file we can load instead. Returns None only when nothing is writable —
+    the caller then degrades to html= with the bridge disabled (and says so)."""
+    canonical = WEBUI_DIR / "_app.html"
+    try:
+        if canonical.read_text(encoding="utf-8") == html:
+            return canonical
+    except OSError:
+        pass
+    import tempfile
+    fallback = Path(tempfile.gettempdir()) / "claude-at_app.html"
+    try:
+        fallback.write_text(html, encoding="utf-8")
+        return fallback
+    except OSError:
+        return None
+
+
 _IMG_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp"}
 
 
@@ -621,11 +646,17 @@ def run_gui(settings, smoke=False):
     # starts its bottle server for relative paths or http_server=True, neither
     # of which we use — so there's still no bound port to orphan.
     html = compose_html(write_preview=True)
-    app_file = WEBUI_DIR / "_app.html"
+    app_file = _loadable_app_file(html)
     common = dict(js_api=api, width=1200, height=920, min_size=(900, 640))
-    if app_file.exists():
-        window = webview.create_window("claude-at", url=app_file.resolve().as_uri(), **common)
-    else:  # compose couldn't write the file (read-only dir) — fall back
+    if app_file is not None:
+        window = webview.create_window(
+            "claude-at", url=app_file.resolve().as_uri(), **common)
+    else:  # neither webui/ nor temp is writable — html= works but the js_api
+        # bridge won't attach (null origin), so the UI would hang on the boot
+        # veil. Nothing better available; log it loudly rather than fail silent.
+        logging.getLogger("pywebview").critical(
+            "claude-at: could not write a file:// HTML build; the js_api bridge "
+            "will not attach and the UI will hang on the boot veil")
         window = webview.create_window("claude-at", html=html, **common)
     api.window = window
 
