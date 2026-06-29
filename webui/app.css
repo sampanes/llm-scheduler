@@ -391,3 +391,12 @@ label { font-size: .8rem; font-weight: 700; color: var(--fg-muted); }
 .modal pre { margin: 0; padding: var(--sp-4); overflow: auto; font-size: .78rem;
   line-height: 1.5; white-space: pre-wrap; word-break: break-word;
   font-family: 'Consolas', 'Courier New', monospace; color: var(--fg); }
+
+/* session right-click context menu */
+.ctx-menu { position: fixed; display: none; min-width: 164px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: var(--shadow); z-index: 70;
+  overflow: hidden; }
+.ctx-item { padding: 7px var(--sp-3); cursor: pointer; font-size: .85rem;
+  color: var(--fg); user-select: none; }
+.ctx-item:hover { background: var(--hover); }

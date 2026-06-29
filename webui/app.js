@@ -63,6 +63,7 @@
     delete: () => ({ error: NOT_CONNECTED }),
     run_now: () => ({ error: NOT_CONNECTED }),
     prune: () => ({ error: NOT_CONNECTED }),
+    open_session: () => ({ error: NOT_CONNECTED }),
     browse: () => ({ path: null }),
     browse_file: () => ({ path: null }),
     latest_screenshot: () => ({           // sample so the preview shows the append
@@ -237,6 +238,7 @@
     $$(".sess-row", list).forEach((row) => {
       row.addEventListener("click", () => pickSession(row.dataset.id));
       row.addEventListener("keydown", (e) => { if (e.key === "Enter") pickSession(row.dataset.id); });
+      row.addEventListener("contextmenu", (e) => { e.preventDefault(); sessCtx.show(row.dataset.id, e.clientX, e.clientY); });
     });
   }
 
@@ -250,6 +252,39 @@
     renderSessions(); updateTargetDesc();
     status(`targeting session ${id.slice(0, 8)}…`);
   }
+
+  // ---- session context menu ----
+  const sessCtx = (() => {
+    let _id = null;
+    const el = document.createElement("div");
+    el.className = "ctx-menu";
+    el.innerHTML = `<div class="ctx-item" data-action="open-terminal">Open in Terminal</div>`;
+    document.body.appendChild(el);
+
+    function hide() { el.style.display = "none"; _id = null; }
+    function show(id, x, y) {
+      _id = id;
+      el.style.cssText = `display:block;left:${x}px;top:${y}px`;
+      const r = el.getBoundingClientRect();
+      if (r.right > window.innerWidth - 4) el.style.left = `${x - r.width}px`;
+      if (r.bottom > window.innerHeight - 4) el.style.top = `${y - r.height}px`;
+    }
+
+    el.addEventListener("click", (e) => e.stopPropagation());
+    el.querySelector("[data-action=open-terminal]").addEventListener("click", async () => {
+      const id = _id;
+      hide();
+      const s = state.sessions.find((x) => x.id === id);
+      if (!s) return;
+      const r = await call("open_session", id, s.dir);
+      if (r && r.error) toast(r.error, true);
+      else status(`opened terminal → ${id.slice(0, 8)}…`);
+    });
+
+    document.addEventListener("click", hide);
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape") hide(); });
+    return { show, hide };
+  })();
 
   function sanitize(name) {
     return (name.replace(/[^A-Za-z0-9 _.-]/g, "").trim().replace(/\s+/g, "-").slice(0, 60)) || "job";

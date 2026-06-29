@@ -29,6 +29,7 @@ data when the bridge is absent).
 
 import base64
 import json
+import subprocess
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -38,7 +39,7 @@ from catcore import (
     describe_schedule, task_name_for, build_action, build_task_xml,
     register_job, update_job, delete_job, task_run, task_query_all, prune_jobs,
     job_status,
-    default_terminal, window_slots as _window_slots,
+    resolve_claude, resolve_terminal, default_terminal, window_slots as _window_slots,
     MODELS, CODEX_MODELS, PERMISSION_MODES, CODEX_APPROVAL_MODES,
     TERMINALS, EFFORT_LEVELS, DAY_ORDER, UUID_RE,
 )
@@ -597,6 +598,27 @@ class Api:
         count = len(prune_jobs(verbose=False))
         self._invalidate()
         return {"ok": True, "count": count}
+
+    def open_session(self, session_id, session_dir):
+        """Open the default terminal, cd to session_dir, and resume session_id."""
+        claude = resolve_claude(self.settings)
+        if not claude:
+            return {"error": "claude executable not found"}
+        term_name = self.settings.get("terminal") or default_terminal(self.settings)
+        term = resolve_terminal(self.settings, term_name) if term_name != "console" else None
+        try:
+            if term_name == "wezterm" and term:
+                cmd = [term, "start", "--cwd", session_dir, "--", claude, "--resume", session_id]
+            elif term_name == "wt" and term:
+                cmd = [term, "-d", session_dir, claude, "--resume", session_id]
+            else:
+                # console fallback: open a new cmd window
+                cmd = ["cmd", "/c", "start", "cmd", "/k",
+                       f'cd /d "{session_dir}" && "{claude}" --resume {session_id}']
+            subprocess.Popen(cmd)
+            return {"ok": True}
+        except OSError as e:
+            return {"error": str(e)}
 
     def browse(self, initial=""):
         if not self._window:
